@@ -1,0 +1,231 @@
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap");
+@import "tailwindcss";
+
+:root {
+  --app-height: 100vh;
+  --color-bg: #071117;
+  --color-bg-deep: #040b10;
+  --color-surface: rgba(13, 23, 29, 0.82);
+  --color-surface-strong: #132029;
+  --color-border: rgba(200, 169, 108, 0.16);
+  --color-border-strong: rgba(243, 224, 182, 0.26);
+  --color-gold: #c8a96c;
+  --color-gold-bright: #f3e0b6;
+  --color-gold-muted: #8e6b36;
+  --color-teal: #6aa69a;
+  --color-text-primary: #f7f1e6;
+  --color-text-secondary: #c8ba9d;
+  --color-text-muted: #8e816d;
+  --shadow-soft: 0 30px 80px rgba(0, 0, 0, 0.34);
+  --shadow-strong: 0 35px 120px rgba(0, 0, 0, 0.45);
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-height: 100dvh;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  min-height: var(--app-height);
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(106, 166, 154, 0.18), transparent 32%),
+    radial-gradient(circle at top right, rgba(243, 224, 182, 0.12), transparent 28%),
+    linear-gradient(145deg, var(--color-bg-deep), var(--color-bg));
+  color: var(--color-text-primary);
+  font-family: "Manrope", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+h1 {
+  font-family: "Cormorant Garamond", serif;
+  font-size: clamp(3.2rem, 5vw, 5.5rem);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 0.95;
+  margin: 0;
+}
+
+h2 {
+  font-family: "Cormorant Garamond", serif;
+  font-size: clamp(2.2rem, 3vw, 3.2rem);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+h3 {
+  font-family: "Cormorant Garamond", serif;
+  font-size: 1.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+p {
+  font-size: 1rem;
+  line-height: 1.75;
+  margin: 0;
+}
+
+.text-soft {
+  color: var(--color-text-secondary);
+}
+
+.text-muted {
+  color: var(--color-text-muted);
+}
+
+.premium-card {
+  background: linear-gradient(160deg, rgba(21, 33, 42, 0.92), rgba(10, 18, 24, 0.92));
+  border: 1px solid var(--color-border);
+  border-radius: 1.75rem;
+  padding: 2rem;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(22px);
+  transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.premium-card:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-strong);
+  transform: translateY(-4px);
+}
+
+.gold-button {
+  background: linear-gradient(
+    135deg,
+    var(--color-gold),
+    var(--color-gold-bright)
+  );
+  color: #1a140d;
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 1.1rem 2rem;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 16px 36px rgba(200, 169, 108, 0.26);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, filter 0.25s ease;
+  min-width: 220px;
+  text-align: center;
+}
+
+.gold-button:hover {
+  box-shadow: 0 22px 46px rgba(200, 169, 108, 0.34);
+  filter: brightness(1.05);
+  transform: translateY(-2px) scale(1.01);
+}
+
+.gold-button:active {
+  transform: scale(0.97);
+  box-shadow: var(--gold-glow-soft);
+}
+
+.gold-outline-button {
+  background: transparent;
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-gold);
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 1.2rem 2rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.gold-outline-button:hover {
+  background: var(--color-gold);
+  color: black;
+  box-shadow: var(--gold-glow-soft);
+}
+
+.gold-divider {
+  height: 1px;
+  width: 100%;
+  margin: 1.5rem 0;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--color-gold),
+    transparent
+  );
+}
+
+.gold-hover {
+  border: 1px solid var(--color-border);
+  transition: 0.3s ease;
+}
+
+.gold-hover:hover {
+  border-color: var(--color-gold);
+  box-shadow: var(--gold-glow-soft);
+}
+
+.input-field {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  padding: 1rem 1.25rem;
+  font-size: 1.05rem;
+  color: var(--color-text-primary);
+  width: 100%;
+  transition: 0.25s ease;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 4px rgba(200, 169, 108, 0.16);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f0f14;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-gold-muted);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gold);
+}
+
+.touch-feedback {
+  transition: transform 0.15s ease;
+}
+
+.touch-feedback:active {
+  transform: scale(0.96);
+}
+
+.glass-overlay {
+  background: rgba(12, 20, 26, 0.68);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(243, 224, 182, 0.16);
+  border-radius: 1.5rem;
+}
+
+::placeholder {
+  color: var(--color-text-muted);
+}
