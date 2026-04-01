@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useNavigate } from "@/navigation/useAppNavigation"
-import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore"
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, where } from "firebase/firestore"
 import { db } from "../../firebase/firebase"
 import Container from "../../layout/Container"
 import TextInput from "../../components/inputs/TextInput"
@@ -368,16 +368,10 @@ export default function PhoneCheckScreen() {
    const legacyEnquiry = getMostRecentRecord(legacyEnquiryCandidates)
 
    if (legacyEnquiry) {
-    const migratedUser = mergeLegacyEnquiryIntoUser(
+   const migratedUser = mergeLegacyEnquiryIntoUser(
      phoneValidation.normalizedPhone,
      existingUser,
      legacyEnquiry
-    )
-
-    await setDoc(
-     doc(db, "users", phoneValidation.normalizedPhone),
-     migratedUser,
-     { merge: true }
     )
 
     setData(buildLookupState(phoneValidation.normalizedPhone, migratedUser, getUserStatusFromRecord))

@@ -9,6 +9,7 @@ import PrimaryButton from "../../components/buttons/PrimaryButton"
 import { spacing, typography } from "../../styles/GlobalStyles"
 import { useState } from "react"
 import { getDurationDays } from "../../utils/duration"
+import { createPaymentRecord } from "../../services/paymentRecords"
 
 export default function SuccessScreen() {
 
@@ -71,6 +72,22 @@ export default function SuccessScreen() {
    const expiryDate = new Date()
    expiryDate.setDate(today.getDate() + daysToAdd)
    const cameFromEnquiry = data.status === "enquiry"
+   const paymentReference =
+    data.paymentMethod && data.paymentStatus === "paid"
+     ? await createPaymentRecord({
+        name: data.name,
+        phone: data.phone,
+        program: data.program,
+        duration: data.duration,
+        amount: data.price,
+        batchType: data.batchType,
+        batchTime: data.batchTime,
+        purpose: data.purpose,
+        paymentMethod: data.paymentMethod,
+        paymentStatus: data.paymentStatus,
+        confirmedAt: serverTimestamp()
+       })
+     : data.paymentReference
 
    await setDoc(
     doc(db,"users",data.phone),
@@ -98,7 +115,7 @@ export default function SuccessScreen() {
      batchTime: data.batchTime,
 
      price: data.price,
-     paymentReference: data.paymentReference,
+     paymentReference,
      paymentMethod: data.paymentMethod,
      paymentStatus: data.paymentStatus,
 

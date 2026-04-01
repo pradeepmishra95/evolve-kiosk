@@ -1,7 +1,5 @@
 import { useNavigate } from "@/navigation/useAppNavigation"
 import { useUserStore } from "../../store/userStore"
-import { setDoc, doc } from "firebase/firestore"
-import { db } from "../../firebase/firebase"
 
 import Container from "../../layout/Container"
 import PrimaryButton from "../../components/buttons/PrimaryButton"
@@ -45,7 +43,7 @@ export default function UserDetailsScreen() {
   setErrors((current) => ({ ...current, gender: "" }))
  }
 
- const handleNext = async () => {
+ const handleNext = () => {
   const nameValidation = validateName(name)
   const ageValidation = validateAge(age)
   const phoneValidation = validatePhoneNumber(phone)
@@ -61,30 +59,12 @@ export default function UserDetailsScreen() {
    return
   }
 
-  try {
-   setData({
-    name: nameValidation.trimmedName,
-    phone: phoneValidation.normalizedPhone
-   })
+  setData({
+   name: nameValidation.trimmedName,
+   phone: phoneValidation.normalizedPhone
+  })
 
-   await setDoc(
-    doc(db, "users", phoneValidation.normalizedPhone),
-    {
-     name: nameValidation.trimmedName,
-     phone: phoneValidation.normalizedPhone,
-     age,
-     gender
-    },
-    { merge: true }
-   )
-
-   navigate("/injury")
-
-  } catch (error) {
-
-   console.error("Error saving user:", error)
-
-  }
+  navigate("/injury")
 
  }
 

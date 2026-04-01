@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useLayoutEffect, useState } from "react"
 import { breakpoints } from "../styles/GlobalStyles"
 
 type DeviceState = {
@@ -38,14 +38,22 @@ const getDeviceState = (): DeviceState => {
 export const useDevice = () => {
  const [device, setDevice] = useState<DeviceState>(getDeviceState)
 
- useEffect(() => {
+ useLayoutEffect(() => {
   const handleResize = () => {
    setDevice(getDeviceState())
   }
 
-  window.addEventListener("resize", handleResize)
+  handleResize()
 
-  return () => window.removeEventListener("resize", handleResize)
+  window.addEventListener("resize", handleResize)
+  window.addEventListener("orientationchange", handleResize)
+  window.visualViewport?.addEventListener("resize", handleResize)
+
+  return () => {
+   window.removeEventListener("resize", handleResize)
+   window.removeEventListener("orientationchange", handleResize)
+   window.visualViewport?.removeEventListener("resize", handleResize)
+  }
  }, [])
 
  return device

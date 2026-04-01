@@ -13,6 +13,7 @@ interface PaymentRecordPayload {
  purpose: UserPurpose
  paymentMethod: PaymentMethod
  paymentStatus: PaymentStatus
+ confirmedAt?: ReturnType<typeof serverTimestamp> | null
 }
 
 export async function createPaymentRecord(payload: PaymentRecordPayload) {
@@ -20,7 +21,7 @@ export async function createPaymentRecord(payload: PaymentRecordPayload) {
   ...payload,
   createdAt: serverTimestamp(),
   updatedAt: serverTimestamp(),
-  confirmedAt: null
+  confirmedAt: payload.confirmedAt ?? null
  })
 
  return paymentDoc.id

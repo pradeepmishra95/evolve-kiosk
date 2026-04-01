@@ -5,7 +5,6 @@ import Grid from "../../layout/Grid"
 import OptionCard from "../../components/cards/OptionCard"
 import { useUserStore } from "../../store/userStore"
 import { colors, typography, spacing } from "../../styles/GlobalStyles"
-import { createPaymentRecord } from "../../services/paymentRecords"
 
 export default function PaymentScreen(){
 
@@ -14,42 +13,24 @@ export default function PaymentScreen(){
  const [activeMethod, setActiveMethod] = useState<"upi" | "cash" | "">("")
  const [paymentError, setPaymentError] = useState("")
 
- const selectPayment = async (method: "upi" | "cash") => {
+ const selectPayment = (method: "upi" | "cash") => {
   if (activeMethod) {
    return
   }
 
-  try {
-   setActiveMethod(method)
-   setPaymentError("")
+  setActiveMethod(method)
+  setPaymentError("")
 
-   const paymentStatus = method === "upi" ? "upi_pending" : "cash_pending"
-   const paymentReference = await createPaymentRecord({
-    name: data.name,
-    phone: data.phone,
-    program: data.program,
-    duration: data.duration,
-    amount: data.price,
-    batchType: data.batchType,
-    batchTime: data.batchTime,
-    purpose: data.purpose,
-    paymentMethod: method,
-    paymentStatus
-   })
+  const paymentStatus = method === "upi" ? "upi_pending" : "cash_pending"
 
-   data.setData({
-    paymentReference,
-    paymentMethod: method,
-    paymentStatus
-   })
+  data.setData({
+   paymentReference: "",
+   paymentMethod: method,
+   paymentStatus
+  })
 
-   navigate(method === "upi" ? "/payment/upi" : "/payment/cash")
-  } catch (error) {
-   console.error("Failed to create payment record:", error)
-   setPaymentError("We could not start the payment flow right now. Please try again.")
-  } finally {
-   setActiveMethod("")
-  }
+  navigate(method === "upi" ? "/payment/upi" : "/payment/cash")
+  setActiveMethod("")
  }
 
  return(

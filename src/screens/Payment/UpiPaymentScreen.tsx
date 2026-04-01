@@ -1,36 +1,28 @@
 import { useState } from "react"
 import { useNavigate } from "@/navigation/useAppNavigation"
-import { serverTimestamp } from "firebase/firestore"
 import Container from "../../layout/Container"
 import StaffPinConfirmation from "../../components/payments/StaffPinConfirmation"
 import { useUserStore } from "../../store/userStore"
 import { colors, radius, spacing, typography } from "../../styles/GlobalStyles"
-import { updatePaymentRecord } from "../../services/paymentRecords"
 
 const formatPrice = (price: number) => `Rs. ${price.toLocaleString("en-IN")}`
 
 export default function UpiPaymentScreen() {
  const navigate = useNavigate()
- const { name, program, duration, batchType, batchTime, price, paymentReference, setData } = useUserStore()
+ const { name, program, duration, batchType, batchTime, price, setData } = useUserStore()
  const [pin, setPin] = useState("")
  const [pinError, setPinError] = useState("")
  const [confirming, setConfirming] = useState(false)
 
  const staffPin = (process.env.NEXT_PUBLIC_STAFF_PIN || process.env.NEXT_PUBLIC_ADMIN_PIN || "2580").trim()
 
- const handleBack = async () => {
-  try {
-   await updatePaymentRecord(paymentReference, { paymentStatus: "cancelled", confirmedAt: null })
-  } catch (error) {
-   console.error("Failed to cancel UPI payment record:", error)
-  } finally {
-   setData({
-    paymentReference: "",
-    paymentMethod: "",
-    paymentStatus: ""
-   })
-   navigate("/payment")
-  }
+ const handleBack = () => {
+  setData({
+   paymentReference: "",
+   paymentMethod: "",
+   paymentStatus: ""
+  })
+  navigate("/payment")
  }
 
  const handleConfirm = async () => {
@@ -42,11 +34,6 @@ export default function UpiPaymentScreen() {
   try {
    setConfirming(true)
    setPinError("")
-
-   await updatePaymentRecord(paymentReference, {
-    paymentStatus: "paid",
-    confirmedAt: serverTimestamp()
-   })
 
    setData({ paymentStatus: "paid" })
    navigate("/success")

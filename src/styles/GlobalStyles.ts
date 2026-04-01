@@ -108,7 +108,7 @@ export const typography = {
   fontSize: fontSize.xxl,
    fontWeight: fontWeight.bold,
   color: colors.textPrimary,
-  fontFamily: "\"Cormorant Garamond\", serif",
+  fontFamily: "var(--font-cormorant), serif",
   letterSpacing: "0.04em"
  },
 
@@ -116,7 +116,7 @@ export const typography = {
   fontSize: fontSize.xl,
   fontWeight: fontWeight.medium,
   color: colors.textPrimary,
-  fontFamily: "\"Cormorant Garamond\", serif",
+  fontFamily: "var(--font-cormorant), serif",
   letterSpacing: "0.03em"
  },
 
@@ -124,14 +124,14 @@ export const typography = {
   fontSize: fontSize.md,
   fontWeight: fontWeight.normal,
   color: colors.textPrimary,
-  fontFamily: "\"Manrope\", sans-serif"
+  fontFamily: "var(--font-manrope), sans-serif"
  },
 
  caption: {
   fontSize: fontSize.sm,
   fontWeight: fontWeight.normal,
   color: colors.textSecondary,
-  fontFamily: "\"Manrope\", sans-serif"
+  fontFamily: "var(--font-manrope), sans-serif"
  }
 
 }

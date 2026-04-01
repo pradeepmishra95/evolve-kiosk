@@ -1,14 +1,10 @@
 import { useNavigate } from "@/navigation/useAppNavigation"
 import Container from "../../layout/Container"
-import { useDevice } from "../../hooks/useDevice"
 import { colors, typography } from "../../styles/GlobalStyles"
 
 export default function WelcomeScreen(){
 
  const navigate = useNavigate()
- const { isCompactHeight, isMobile, isTablet } = useDevice()
-
- const cardWidth = isMobile ? "90%" : isTablet ? "500px" : "600px"
 
  return(
 
@@ -16,8 +12,8 @@ export default function WelcomeScreen(){
 
    <div
     style={{
-     width:cardWidth,
-     padding:isCompactHeight ? "2px 2px 10px" : isMobile ? "8px 4px 16px" : "12px 10px 20px",
+     width:"min(100%, 600px)",
+     padding:"clamp(2px, 1vh, 12px) clamp(2px, 1vw, 10px) clamp(10px, 2vh, 20px)",
      textAlign:"center"
     }}
    >
@@ -25,10 +21,10 @@ export default function WelcomeScreen(){
     <p
      style={{
       color: colors.secondary,
-      fontSize: isMobile ? "12px" : "13px",
+      fontSize: "clamp(12px, 1.5vw, 13px)",
       letterSpacing: "0.28em",
       textTransform: "uppercase",
-      marginBottom: "18px",
+      marginBottom: "clamp(14px, 2vh, 18px)",
       fontWeight: 700
      }}
     >
@@ -38,8 +34,9 @@ export default function WelcomeScreen(){
     <h1
      style={{
       ...typography.title,
-      fontSize:isCompactHeight ? "42px" : isMobile ? "52px" : "74px",
+      fontSize:"clamp(42px, 7.4vw, 74px)",
       color: colors.textPrimary,
+      lineHeight:"0.94",
       marginBottom:"12px"
      }}
     >
@@ -51,9 +48,9 @@ export default function WelcomeScreen(){
     <p
      style={{
       color: colors.textSecondary,
-      fontSize:isCompactHeight ? "14px" : isMobile ? "15px" : "18px",
+      fontSize:"clamp(14px, 2vw, 18px)",
       maxWidth: "460px",
-      margin: isCompactHeight ? "0 auto 22px" : "0 auto 34px"
+      margin: "0 auto clamp(22px, 4vh, 34px)"
      }}
     >
      A guided premium sign-up flow for trials, memberships, and enquiries in under a minute.
@@ -63,10 +60,10 @@ export default function WelcomeScreen(){
      onClick={() => navigate("/phone")}
      style={{
       width:"100%",
-      padding:isCompactHeight ? "14px" : isMobile ? "16px" : "20px",
+      padding:"clamp(14px, 2.2vh, 20px)",
       borderRadius:"999px",
       border:"none",
-      fontSize:isMobile ? "14px" : "15px",
+      fontSize:"clamp(14px, 1.8vw, 15px)",
       fontWeight:800,
       letterSpacing:"0.22em",
       textTransform:"uppercase",
@@ -84,11 +81,11 @@ export default function WelcomeScreen(){
      style={{
       display: "flex",
       justifyContent: "center",
-      gap: isMobile ? "12px" : "18px",
+      gap: "clamp(12px, 2vw, 18px)",
       flexWrap: "wrap",
-      marginTop:isCompactHeight ? "14px" : "18px",
+      marginTop:"clamp(14px, 2vh, 18px)",
       color:colors.textMuted,
-      fontSize:isMobile ? "12px" : "13px",
+      fontSize:"clamp(12px, 1.5vw, 13px)",
       letterSpacing: "0.08em",
       textTransform: "uppercase"
      }}

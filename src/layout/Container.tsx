@@ -1,11 +1,8 @@
 import type { ReactNode } from "react"
 import logo from "../assets/image/logo.png"
-import { useDevice } from "../hooks/useDevice"
-import { colors, radius, shadow } from "../styles/GlobalStyles"
+import { colors, shadow } from "../styles/GlobalStyles"
 
 export default function Container({ children }: { children: ReactNode }) {
- const { isCompactHeight, isMobile, isShortHeight } = useDevice()
-
  return(
 
   <div
@@ -16,12 +13,7 @@ export default function Container({ children }: { children: ReactNode }) {
     flexDirection:"column",
     alignItems:"center",
     justifyContent:"center",
-    padding:
-     isCompactHeight
-      ? "10px 10px"
-      : isShortHeight
-       ? "14px 12px"
-       : "clamp(18px, 4vw, 32px) clamp(14px, 3vw, 20px)",
+    padding:"clamp(10px, 2.8vh, 32px) clamp(10px, 3vw, 20px)",
     background: colors.background,
     color: colors.textPrimary,
     position:"relative",
@@ -31,11 +23,11 @@ export default function Container({ children }: { children: ReactNode }) {
   >
 
    <div
-    style={{
+   style={{
      position:"absolute",
      inset:"auto auto 72% -8%",
-     width:isCompactHeight ? "220px" : "320px",
-     height:isCompactHeight ? "220px" : "320px",
+     width:"clamp(220px, 22vw, 320px)",
+     height:"clamp(220px, 22vw, 320px)",
      borderRadius:"50%",
      background:"radial-gradient(circle, rgba(106,166,154,0.18), transparent 70%)",
      filter:"blur(10px)"
@@ -43,11 +35,11 @@ export default function Container({ children }: { children: ReactNode }) {
    />
 
    <div
-    style={{
+   style={{
      position:"absolute",
      inset:"8% -6% auto auto",
-     width:isCompactHeight ? "240px" : "360px",
-     height:isCompactHeight ? "240px" : "360px",
+     width:"clamp(240px, 24vw, 360px)",
+     height:"clamp(240px, 24vw, 360px)",
      borderRadius:"50%",
      background:"radial-gradient(circle, rgba(243,224,182,0.12), transparent 72%)",
      filter:"blur(12px)"
@@ -60,8 +52,8 @@ export default function Container({ children }: { children: ReactNode }) {
      maxWidth:"720px",
      height:"100%",
      maxHeight:"100%",
-     padding:isCompactHeight ? "14px" : "clamp(16px, 3vw, 28px)",
-     borderRadius:isMobile ? radius.lg : radius.xl,
+     padding:"clamp(14px, 3vw, 28px)",
+     borderRadius:"clamp(28px, 5vw, 40px)",
      border:`1px solid ${colors.border}`,
      background:"linear-gradient(160deg, rgba(17,28,35,0.92), rgba(8,15,20,0.9))",
      boxShadow:shadow.modal,
@@ -78,7 +70,7 @@ export default function Container({ children }: { children: ReactNode }) {
      style={{
       display:"flex",
       justifyContent:"center",
-      marginBottom:isCompactHeight ? "10px" : "clamp(18px, 3vw, 28px)",
+      marginBottom:"clamp(10px, 3vh, 28px)",
       flexShrink:0
      }}
     >
@@ -86,12 +78,7 @@ export default function Container({ children }: { children: ReactNode }) {
       src={logo.src}
       alt="logo"
       style={{
-       width:
-        isCompactHeight
-         ? "96px"
-         : isShortHeight
-          ? "112px"
-          : "clamp(130px, 18vw, 210px)",
+       width:"clamp(96px, 18vw, 210px)",
        filter:"drop-shadow(0 16px 30px rgba(0,0,0,0.28))"
       }}
      />
