@@ -12,8 +12,8 @@ export default function WelcomeScreen(){
 
    <div
     style={{
-     width:"min(100%, 600px)",
-     padding:"clamp(2px, 1vh, 12px) clamp(2px, 1vw, 10px) clamp(10px, 2vh, 20px)",
+     width:"min(100%, 560px)",
+     padding:"clamp(4px, 0.8vh, 10px) clamp(4px, 1vw, 10px) clamp(10px, 1.6vh, 18px)",
      textAlign:"center"
     }}
    >
@@ -34,7 +34,7 @@ export default function WelcomeScreen(){
     <h1
      style={{
       ...typography.title,
-      fontSize:"clamp(42px, 7.4vw, 74px)",
+      fontSize:"clamp(36px, 6.2vw, 64px)",
       color: colors.textPrimary,
       lineHeight:"0.94",
       marginBottom:"12px"
@@ -48,9 +48,9 @@ export default function WelcomeScreen(){
     <p
      style={{
       color: colors.textSecondary,
-      fontSize:"clamp(14px, 2vw, 18px)",
+      fontSize:"clamp(14px, 1.7vw, 17px)",
       maxWidth: "460px",
-      margin: "0 auto clamp(22px, 4vh, 34px)"
+      margin: "0 auto clamp(20px, 3vh, 28px)"
      }}
     >
      A guided premium sign-up flow for trials, memberships, and enquiries in under a minute.
@@ -60,7 +60,7 @@ export default function WelcomeScreen(){
      onClick={() => navigate("/phone")}
      style={{
       width:"100%",
-      padding:"clamp(14px, 2.2vh, 20px)",
+      padding:"clamp(14px, 2vh, 18px)",
       borderRadius:"999px",
       border:"none",
       fontSize:"clamp(14px, 1.8vw, 15px)",

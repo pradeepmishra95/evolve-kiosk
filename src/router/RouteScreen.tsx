@@ -1,6 +1,6 @@
 "use client"
 
-import { lazy, Suspense, useEffect } from "react"
+import { lazy, Suspense, useEffect, useLayoutEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { useUserStore, type UserState } from "../store/userStore"
 import { validateAge, validateName, validatePhoneNumber } from "../utils/validation"
@@ -319,21 +319,35 @@ const getRouteRedirect = (route: KioskRoute, state: UserState) => {
 }
 
 function useViewportHeightSync() {
- useEffect(() => {
+ useLayoutEffect(() => {
+  let frameId = 0
+
   const syncViewportHeight = () => {
-   document.documentElement.style.setProperty("--app-height", `${window.innerHeight}px`)
+   const viewportHeight = window.visualViewport?.height ?? window.innerHeight
+   document.documentElement.style.setProperty("--app-height", `${Math.round(viewportHeight)}px`)
+  }
+
+  const scheduleSync = () => {
+   window.cancelAnimationFrame(frameId)
+   frameId = window.requestAnimationFrame(syncViewportHeight)
   }
 
   syncViewportHeight()
+  scheduleSync()
 
-  window.addEventListener("resize", syncViewportHeight)
-  window.addEventListener("orientationchange", syncViewportHeight)
-  window.visualViewport?.addEventListener("resize", syncViewportHeight)
+  window.addEventListener("resize", scheduleSync)
+  window.addEventListener("orientationchange", scheduleSync)
+  window.addEventListener("load", scheduleSync)
+  window.visualViewport?.addEventListener("resize", scheduleSync)
+  window.visualViewport?.addEventListener("scroll", scheduleSync)
 
   return () => {
-   window.removeEventListener("resize", syncViewportHeight)
-   window.removeEventListener("orientationchange", syncViewportHeight)
-   window.visualViewport?.removeEventListener("resize", syncViewportHeight)
+   window.cancelAnimationFrame(frameId)
+   window.removeEventListener("resize", scheduleSync)
+   window.removeEventListener("orientationchange", scheduleSync)
+   window.removeEventListener("load", scheduleSync)
+   window.visualViewport?.removeEventListener("resize", scheduleSync)
+   window.visualViewport?.removeEventListener("scroll", scheduleSync)
   }
  }, [])
 }

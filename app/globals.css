@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --app-height: 100vh;
+  --app-height: 100svh;
   --color-bg: #071117;
   --color-bg-deep: #040b10;
   --color-surface: rgba(13, 23, 29, 0.82);
@@ -35,6 +35,8 @@ body {
   min-height: var(--app-height);
   margin: 0;
   padding: 0;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
