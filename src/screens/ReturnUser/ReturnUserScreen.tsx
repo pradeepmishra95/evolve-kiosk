@@ -2,6 +2,7 @@ import { useNavigate } from "@/navigation/useAppNavigation"
 import Container from "../../layout/Container"
 import Grid from "../../layout/Grid"
 import OptionCard from "../../components/cards/OptionCard"
+import { useDevice } from "../../hooks/useDevice"
 import { usePlanCatalog } from "../../hooks/usePlanCatalog"
 import { useUserStore } from "../../store/userStore"
 import { matchesLabel } from "../../utils/labelMatch"
@@ -26,6 +27,7 @@ const getRegularPlanPricing = (plan?: ProgramPlan) => {
 
 export default function ReturnUserScreen() {
  const navigate = useNavigate()
+ const { isMobile, isTablet, isCompactHeight } = useDevice()
 
  const {
   name,
@@ -165,7 +167,7 @@ export default function ReturnUserScreen() {
 
  return (
   <Container centerContent>
-   <div style={styles.centerStack}>
+   <div style={styles.centerStack(isMobile || isTablet, isCompactHeight)}>
     <h2 style={styles.heading}>{getHeading()}</h2>
 
     <Grid style={styles.grid}>
@@ -185,7 +187,7 @@ export default function ReturnUserScreen() {
 }
 
 const styles = {
- centerStack: {
+ centerStack: (isTabletLayout: boolean, isCompactHeight: boolean) => ({
   width: "100%",
   maxWidth: "760px",
   display: "flex",
@@ -193,8 +195,12 @@ const styles = {
   justifyContent: "center",
   alignItems: "stretch",
   gap: "clamp(12px, 2vh, 22px)",
-  transform: "translateY(calc(clamp(56px, 7vh, 100px) * -1))"
- },
+  padding: "clamp(8px, 1.6vh, 16px) 0",
+  transform:
+   isTabletLayout || isCompactHeight
+    ? "none"
+    : "translateY(calc(clamp(56px, 7vh, 100px) * -1))"
+ }),
  heading: {
   textAlign: "center" as const,
   margin: 0

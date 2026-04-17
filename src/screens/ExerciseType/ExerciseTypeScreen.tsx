@@ -13,7 +13,7 @@ const getProgramSummary = (trainingType: CatalogTrainingType) =>
 
 export default function ExerciseTypeScreen() {
  const navigate = useNavigate()
- const { isMobile, isCompactHeight } = useDevice()
+ const { isMobile, isTablet, isCompactHeight } = useDevice()
  const { trainingTypes, loading } = usePlanCatalog()
  const {
   priorExerciseExperience,
@@ -71,12 +71,12 @@ export default function ExerciseTypeScreen() {
 
    </div>
 
-    <div style={styles.trainingGrid(isMobile)}>
+    <div style={styles.trainingGrid(isMobile, isTablet)}>
      {trainingTypes.map((trainingType) => (
       <div
        key={trainingType.name}
        style={{
-        ...styles.card(isCompactHeight),
+        ...styles.card(isCompactHeight, isTablet),
         opacity: trainingType.disabled ? 0.74 : 1
        }}
       >
@@ -100,7 +100,7 @@ export default function ExerciseTypeScreen() {
         </div>
        </div>
 
-       <div style={styles.cardActions}>
+       <div style={styles.cardActions(isMobile || isTablet)}>
         <button
          type="button"
          onClick={() => {
@@ -259,13 +259,13 @@ const styles = {
   margin: 0,
   maxWidth: "95%"
  },
- trainingGrid: (isMobile: boolean) => ({
+ trainingGrid: (isMobile: boolean, isTablet: boolean) => ({
   display: "grid",
-  gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+  gridTemplateColumns: isMobile ? "1fr" : isTablet ? "repeat(2, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))",
   gap: "clamp(10px, 1.6vw, 16px)",
   alignItems: "stretch"
  }),
- card: (isCompactHeight: boolean) => ({
+ card: (isCompactHeight: boolean, isTablet: boolean) => ({
   padding: isCompactHeight ? "16px" : "18px",
   border: `1px solid ${colors.borderStrong}`,
   borderRadius: radius.lg,
@@ -277,7 +277,7 @@ const styles = {
   flexDirection: "column" as const,
   justifyContent: "space-between" as const,
   gap: "12px",
-  minHeight: isCompactHeight ? "216px" : "232px",
+  minHeight: isCompactHeight ? "216px" : isTablet ? "224px" : "232px",
   textAlign: "left" as const,
   overflow: "hidden" as const
  }),
@@ -308,15 +308,15 @@ const styles = {
  },
  cardTitle: {
   ...typography.subtitle,
-  fontSize: "29px",
+  fontSize: "clamp(24px, 3.2vw, 29px)",
   marginBottom: "0",
   lineHeight: 1.04
  },
- cardActions: {
+ cardActions: (allowWrap: boolean) => ({
   display: "flex",
-   gap: spacing.sm,
-  flexWrap: "nowrap" as const
- },
+  gap: spacing.sm,
+  flexWrap: allowWrap ? "wrap" as const : "nowrap" as const
+ }),
  primaryButton: {
   minHeight: "48px",
   flex: 1,

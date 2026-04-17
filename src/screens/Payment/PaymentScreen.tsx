@@ -26,6 +26,9 @@ export default function PaymentScreen(){
  const isTrialBooking = data.purpose === "trial"
  const baseAmount = isTrialBooking ? TRIAL_FEE : data.price
  const isSecondCollectionStep = data.isPartialPayment && data.paymentCollectionStep === 2
+ const availablePaymentMethods = PAYMENT_METHOD_OPTIONS.filter(
+  (method) => !(isTrialBooking && method.value === "emi")
+ )
 
  const buildMethodSubtitle = (method: (typeof PAYMENT_METHOD_OPTIONS)[number]) => {
   const surchargeAmount = getResolvedPaymentSurchargeAmount(
@@ -130,7 +133,7 @@ export default function PaymentScreen(){
      )}
 
      <Grid>
-      {PAYMENT_METHOD_OPTIONS.map((method) => (
+      {availablePaymentMethods.map((method) => (
        <ChoiceCard
         key={method.value}
         title={method.title}

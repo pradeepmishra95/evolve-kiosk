@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "@/navigation/useAppNavigation"
 import Container from "../../layout/Container"
 import PrimaryButton from "../../components/buttons/PrimaryButton"
+import { useDevice } from "../../hooks/useDevice"
 import { useToastStore } from "../../store/toastStore"
 import { useUserStore } from "../../store/userStore"
 import { getProfilePhotoUploadStatusMessage, uploadProfilePhoto } from "../../services/profilePhoto"
@@ -102,6 +103,7 @@ const getCameraErrorMessage = (error: unknown) => {
 export default function ProfilePhotoScreen() {
  const navigate = useNavigate()
  const showToast = useToastStore((state) => state.showToast)
+ const { isMobile, isTablet, isPortrait, isCompactHeight } = useDevice()
 
  const {
   name,
@@ -143,6 +145,7 @@ export default function ProfilePhotoScreen() {
  const canContinue = (!isRequiredFlow || hasSavedPhoto) && !photoUploading
  const phoneLabel = formatPhoneNumber(phone, countryCode) || phone || "-"
  const ageLabel = typeof age === "number" ? `${age} years` : "-"
+ const useSingleColumnLayout = isMobile || (isTablet && isPortrait)
 
  const releaseDraftPreview = useCallback(() => {
   if (previewUrlRef.current) {
@@ -368,7 +371,7 @@ export default function ProfilePhotoScreen() {
       </div>
      </div>
 
-     <div style={styles.grid}>
+     <div style={styles.grid(useSingleColumnLayout)}>
       <div style={styles.guidanceCard}>
        <h2 style={styles.sectionTitle}>Why this step matters</h2>
 
@@ -464,7 +467,7 @@ export default function ProfilePhotoScreen() {
       </div>
      </div>
 
-     <div style={styles.footerCard}>
+     <div style={styles.footerCard(useSingleColumnLayout)}>
       <div>
        <p style={styles.footerTitle}>Ready to continue?</p>
        <p style={styles.footerText}>
@@ -478,13 +481,14 @@ export default function ProfilePhotoScreen() {
        title={photoUploading ? "Uploading..." : "Continue to Program"}
        onClick={handleContinue}
        disabled={!canContinue}
+       fullWidth={useSingleColumnLayout}
       />
      </div>
     </div>
 
     {cameraOpen && (
      <div style={styles.cameraOverlay}>
-      <div style={styles.cameraCard}>
+      <div style={styles.cameraCard(isMobile || isCompactHeight)}>
        <p style={styles.cameraTitle}>Capture Profile Photo</p>
 
        <div style={styles.cameraViewport}>
@@ -593,12 +597,12 @@ const styles = {
   textTransform: "uppercase" as const,
   fontWeight: 700
  },
- grid: {
+ grid: (useSingleColumnLayout: boolean) => ({
   display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.05fr)",
+  gridTemplateColumns: useSingleColumnLayout ? "1fr" : "minmax(0, 1fr) minmax(0, 1.05fr)",
   gap: spacing.lg,
   marginTop: spacing.lg
- },
+ }),
  guidanceCard: {
   padding: spacing.lg,
   borderRadius: radius.lg,
@@ -765,7 +769,7 @@ const styles = {
   textTransform: "uppercase" as const,
   fontWeight: 700
  },
- footerCard: {
+ footerCard: (useSingleColumnLayout: boolean) => ({
   marginTop: spacing.lg,
   padding: spacing.lg,
   borderRadius: radius.lg,
@@ -773,10 +777,11 @@ const styles = {
   background: "linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))",
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "center",
+  alignItems: useSingleColumnLayout ? "stretch" : "center",
+  flexDirection: useSingleColumnLayout ? "column" as const : "row" as const,
   gap: spacing.lg,
   flexWrap: "wrap" as const
- },
+ }),
  footerTitle: {
   color: colors.textPrimary,
   fontSize: "18px",
@@ -798,14 +803,14 @@ const styles = {
   padding: spacing.lg,
   zIndex: 1000
  },
- cameraCard: {
+ cameraCard: (useCompactSpacing: boolean) => ({
   width: "min(100%, 460px)",
-  padding: spacing.lg,
+  padding: useCompactSpacing ? spacing.md : spacing.lg,
   borderRadius: radius.lg,
   border: `1px solid ${colors.borderStrong}`,
   background: "linear-gradient(160deg, rgba(17,28,35,0.98), rgba(8,15,20,0.98))",
   boxShadow: shadow.modal
- },
+ }),
  cameraTitle: {
   color: colors.textPrimary,
   fontSize: "18px",

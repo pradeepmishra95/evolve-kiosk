@@ -194,18 +194,18 @@ export default function Container({
     <div
      ref={viewportRef}
      style={{
-      width:"100%",
-      maxWidth:"720px",
-      margin:"0 auto",
-      flex:1,
-      minHeight:0,
-      overflowY: scrollable ? "auto" : "hidden",
+     width:"100%",
+     maxWidth:"720px",
+     margin:"0 auto",
+     flex:1,
+     minHeight:0,
+      overflowY: scrollable || centerContent ? "auto" : "hidden",
       overflowX:"hidden",
       overscrollBehavior:"contain",
       WebkitOverflowScrolling:"touch",
-      scrollbarGutter: scrollable ? "stable" : "auto",
-      paddingRight: scrollable ? "4px" : 0,
-      paddingBottom: scrollable ? "8px" : 0,
+      scrollbarGutter: scrollable || centerContent ? "stable" : "auto",
+      paddingRight: scrollable || centerContent ? "4px" : 0,
+      paddingBottom: scrollable || centerContent ? "8px" : 0,
       position:"relative",
       boxSizing:"border-box"
      }}

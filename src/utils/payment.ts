@@ -43,11 +43,11 @@ export const PAYMENT_METHOD_OPTIONS: PaymentMethodOption[] = [
  {
   value: "upi",
   title: "UPI",
-  subtitle: "Scan the QR and finish instantly.",
+  subtitle: "Collect the payment using any UPI app.",
   category: "upi",
-  detailTitle: "UPI Payment",
-  detailActionLabel: "Pay with UPI",
-  detailHint: "Use any UPI app to complete the payment."
+  detailTitle: "UPI Collection",
+  detailActionLabel: "Collect UPI",
+  detailHint: "Confirm the UPI payment has been completed before finishing."
  },
  {
   value: "emi",

@@ -5,8 +5,11 @@ type DeviceState = {
  isMobile: boolean
  isTablet: boolean
  isDesktop: boolean
+ isPortrait: boolean
+ isLandscape: boolean
  isShortHeight: boolean
  isCompactHeight: boolean
+ viewportWidth: number
  viewportHeight: number
 }
 
@@ -16,8 +19,11 @@ const getDeviceState = (): DeviceState => {
    isMobile: false,
    isTablet: false,
    isDesktop: true,
+   isPortrait: false,
+   isLandscape: true,
    isShortHeight: false,
    isCompactHeight: false,
+   viewportWidth: 0,
    viewportHeight: 0
   }
  }
@@ -29,8 +35,11 @@ const getDeviceState = (): DeviceState => {
   isMobile: width <= breakpoints.mobile,
   isTablet: width > breakpoints.mobile && width <= breakpoints.tablet,
   isDesktop: width > breakpoints.tablet,
+  isPortrait: height >= width,
+  isLandscape: width > height,
   isShortHeight: height <= 820,
   isCompactHeight: height <= 700,
+  viewportWidth: width,
   viewportHeight: height
  }
 }

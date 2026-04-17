@@ -6,14 +6,14 @@ import { colors, radius, spacing, typography } from "../../styles/GlobalStyles"
 import { TRIAL_FEE, TRIAL_FEE_NOTE } from "../../utils/trialPricing"
 import {
  getPaymentCollectionAmount,
+ getPaymentMethodLabel,
+ getPaymentMethodOption,
  getPaymentTotalAmount,
  getRemainingPaymentAmount,
  getResolvedPaymentSurchargeAmount
 } from "../../utils/payment"
 
 const formatPrice = (price: number) => `Rs. ${price.toLocaleString("en-IN")}`
-const UPI_ID = "evolvemmaandcalisthenics@kotak"
-const UPI_PAYEE_NAME = "EVOLVE MMA & CALISTHENICS"
 
 export default function UpiPaymentScreen() {
  const navigate = useNavigate()
@@ -32,27 +32,43 @@ export default function UpiPaymentScreen() {
   paymentSurchargeAmount,
   setData
  } = useUserStore()
+ const selectedMethod = "upi"
  const isTrialBooking = purpose === "trial"
  const baseAmount = isTrialBooking ? TRIAL_FEE : price
  const isSecondCollectionStep = isPartialPayment && paymentCollectionStep === 2
  const payableAmount = getPaymentCollectionAmount({
   baseAmount,
-  method: "upi",
+  method: selectedMethod,
   isPartialPayment,
   firstInstallmentAmount: paidAmount,
   paymentCollectionStep,
   lockedSurchargeAmount: paymentSurchargeAmount
  })
- const resolvedSurchargeAmount = getResolvedPaymentSurchargeAmount(baseAmount, "upi", paymentSurchargeAmount)
- const totalPayableAmount = getPaymentTotalAmount(baseAmount, "upi", paymentSurchargeAmount)
+ const resolvedSurchargeAmount = getResolvedPaymentSurchargeAmount(
+  baseAmount,
+  selectedMethod,
+  paymentSurchargeAmount
+ )
+ const totalPayableAmount = getPaymentTotalAmount(baseAmount, selectedMethod, paymentSurchargeAmount)
+ const paymentMethodOption = getPaymentMethodOption(selectedMethod)
+ const paymentLabel = getPaymentMethodLabel(selectedMethod)
+ const screenTitle = paymentMethodOption?.detailTitle || "UPI Collection"
+ const actionLabel = paymentMethodOption?.detailActionLabel || "Collect UPI"
+ const paymentHint =
+  paymentMethodOption?.detailHint || "Confirm the UPI payment has been completed before finishing."
 
  const handleFinish = async () => {
   if (isPartialPayment && paymentCollectionStep === 1) {
-   const nextDueAmount = getRemainingPaymentAmount(baseAmount, paidAmount, "upi", paymentSurchargeAmount)
+   const nextDueAmount = getRemainingPaymentAmount(
+    baseAmount,
+    paidAmount,
+    selectedMethod,
+    paymentSurchargeAmount
+   )
 
    setData({
-    paymentMethod: "upi",
-    paymentMethod1: "upi",
+    paymentMethod: selectedMethod,
+    paymentMethod1: selectedMethod,
     paymentMethod2: "",
     paymentStatus: "partial",
     paymentCollectionStep: 2,
@@ -67,9 +83,9 @@ export default function UpiPaymentScreen() {
   }
 
   setData({
-   paymentMethod: "upi",
-   paymentMethod1: isPartialPayment ? paymentMethod1 || "upi" : "upi",
-   paymentMethod2: isPartialPayment ? "upi" : "",
+   paymentMethod: selectedMethod,
+   paymentMethod1: isPartialPayment ? paymentMethod1 || selectedMethod : selectedMethod,
+   paymentMethod2: isPartialPayment ? selectedMethod : "",
    paymentStatus: "paid",
    dueAmount: isPartialPayment ? payableAmount : 0,
    paymentSurchargeAmount: resolvedSurchargeAmount,
@@ -83,34 +99,17 @@ export default function UpiPaymentScreen() {
  return (
   <Container scrollable>
    <div style={styles.wrapper}>
-    <h2 style={styles.heading}>UPI Payment</h2>
+    <h2 style={styles.heading}>{screenTitle}</h2>
 
-    <div style={styles.qrCard}>
-     <div style={styles.brandRow}>
-      <span style={styles.bankName}>Kotak Mahindra Bank</span>
-     </div>
-
-     <h3 style={styles.payeeName}>
-      {UPI_PAYEE_NAME}
-     </h3>
-
-     <p style={styles.upiIdText}>
-      UPI ID: {UPI_ID}
-     </p>
-
-     <p style={styles.upiHint}>
-      Use the UPI ID above to complete payment from any UPI app.
-     </p>
-
-     <div style={styles.amountBlock}>
-      <span style={styles.amountLabel}>{isPartialPayment ? "Partial Amount (Now)" : "Amount Payable"}</span>
-      <strong style={styles.amount}>{formatPrice(payableAmount)}</strong>
-      {isPartialPayment && (
-       <span style={{ fontSize: "13px", color: "#f59e0b", fontWeight: 700 }}>
-        {isSecondCollectionStep ? "Final collection" : `Base remaining: ${formatPrice(dueAmount)}`}
-       </span>
-      )}
-     </div>
+    <div style={styles.amountCard}>
+     <span style={styles.amountLabel}>{actionLabel}</span>
+     <strong style={styles.amount}>{formatPrice(payableAmount)}</strong>
+     {isPartialPayment && (
+      <span style={styles.partialMeta}>
+       {isSecondCollectionStep ? "Final collection" : `Base remaining: ${formatPrice(dueAmount)}`}
+      </span>
+     )}
+    </div>
 
     {isTrialBooking && (
      <div style={styles.noticeCard}>
@@ -125,7 +124,7 @@ export default function UpiPaymentScreen() {
       <p style={styles.noticeText}>
        {isSecondCollectionStep
         ? `Collect the remaining ₹${dueAmount.toLocaleString("en-IN")} now.`
-        : `After this ₹${paidAmount.toLocaleString("en-IN")} collection, the remaining amount will be ₹${getRemainingPaymentAmount(baseAmount, paidAmount, "upi", paymentSurchargeAmount).toLocaleString("en-IN")}.`}
+        : `After this ₹${paidAmount.toLocaleString("en-IN")} collection, the remaining amount will be ₹${getRemainingPaymentAmount(baseAmount, paidAmount, selectedMethod, paymentSurchargeAmount).toLocaleString("en-IN")}.`}
       </p>
      </div>
     )}
@@ -139,18 +138,18 @@ export default function UpiPaymentScreen() {
      </div>
     )}
 
-    </div>
-
     <div style={styles.summaryCard}>
      <h3 style={styles.summaryHeading}>Booking Snapshot</h3>
      <div style={styles.summaryRows}>
       <p><b>Program:</b> {program}</p>
       <p><b>Duration:</b> {duration}</p>
+      <p><b>Payment Method:</b> {paymentLabel}</p>
       <p><b>Batch:</b> {batchType || "-"} {batchTime ? `| ${batchTime}` : ""}</p>
      </div>
     </div>
 
     <div style={styles.sessionCard}>
+     <p style={styles.sessionText}>{paymentHint}</p>
      <div style={styles.sessionActions}>
       <PrimaryButton
        title="Finish"
@@ -169,8 +168,8 @@ const styles = {
  wrapper: {
   maxWidth: "560px",
   margin: "0 auto",
- textAlign: "center" as const
-},
+  textAlign: "center" as const
+ },
 
  heading: {
   ...typography.subtitle,
@@ -183,73 +182,18 @@ const styles = {
   marginBottom: spacing.lg
  },
 
- qrCard: {
-  padding: spacing.lg,
+ amountCard: {
+  padding: spacing.xl,
   borderRadius: radius.lg,
   border: `1px solid ${colors.border}`,
-  background: "linear-gradient(180deg, rgba(240,244,248,0.98), rgba(255,255,255,0.92))",
-  display: "flex",
-  flexDirection: "column" as const,
-  alignItems: "center",
-  gap: spacing.md
- },
-
- brandRow: {
-  width: "100%",
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: spacing.sm,
-  flexWrap: "wrap" as const
- },
-
- bankName: {
-  color: "#163A6B",
-  fontSize: "18px",
-  fontWeight: 800,
-  letterSpacing: "0.01em"
- },
-
- upiLabel: {
-  color: "#4B5563",
-  fontSize: "12px",
-  fontWeight: 700,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase" as const
- },
-
- payToLabel: {
-  color: "#4B5563",
-  fontSize: "14px",
-  fontWeight: 700,
-  margin: 0
- },
-
- payeeName: {
-  margin: 0,
-  color: "#111827",
-  fontSize: "clamp(26px, 4vw, 38px)",
-  fontWeight: 800,
-  lineHeight: 1.05,
-  textAlign: "center" as const
- },
-
- upiIdText: {
-  color: "#4B5563",
-  fontSize: "16px",
-  fontWeight: 700,
-  textAlign: "center" as const,
-  wordBreak: "break-word" as const,
-  margin: 0
- },
-
- amountBlock: {
+  background: "linear-gradient(145deg, rgba(200,169,108,0.12), rgba(255,255,255,0.03))",
   display: "flex",
   flexDirection: "column" as const,
   gap: spacing.xs
  },
 
  noticeCard: {
+  marginTop: spacing.lg,
   width: "100%",
   padding: "14px 16px",
   borderRadius: radius.md,
@@ -282,15 +226,14 @@ const styles = {
 
  amount: {
   color: colors.primaryLight,
-  fontSize: "34px",
+  fontSize: "36px",
   fontWeight: 800
  },
 
- upiHint: {
-  color: "#4B5563",
-  fontSize: "15px",
-  fontWeight: 700,
-  margin: 0
+ partialMeta: {
+  fontSize: "13px",
+  color: colors.primaryLight,
+  fontWeight: 700
  },
 
  summaryCard: {
