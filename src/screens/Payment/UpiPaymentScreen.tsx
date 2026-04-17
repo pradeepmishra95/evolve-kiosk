@@ -1,108 +1,165 @@
-import { useState } from "react"
 import { useNavigate } from "@/navigation/useAppNavigation"
 import Container from "../../layout/Container"
-import StaffPinConfirmation from "../../components/payments/StaffPinConfirmation"
+import PrimaryButton from "../../components/buttons/PrimaryButton"
 import { useUserStore } from "../../store/userStore"
 import { colors, radius, spacing, typography } from "../../styles/GlobalStyles"
+import { TRIAL_FEE, TRIAL_FEE_NOTE } from "../../utils/trialPricing"
+import {
+ getPaymentCollectionAmount,
+ getPaymentTotalAmount,
+ getRemainingPaymentAmount,
+ getResolvedPaymentSurchargeAmount
+} from "../../utils/payment"
 
 const formatPrice = (price: number) => `Rs. ${price.toLocaleString("en-IN")}`
+const UPI_ID = "evolvemmaandcalisthenics@kotak"
+const UPI_PAYEE_NAME = "EVOLVE MMA & CALISTHENICS"
 
 export default function UpiPaymentScreen() {
  const navigate = useNavigate()
- const { name, program, duration, batchType, batchTime, price, setData } = useUserStore()
- const [pin, setPin] = useState("")
- const [pinError, setPinError] = useState("")
- const [confirming, setConfirming] = useState(false)
+ const {
+  program,
+  duration,
+  batchType,
+  batchTime,
+  price,
+  purpose,
+  isPartialPayment,
+  paidAmount,
+  dueAmount,
+  paymentCollectionStep,
+  paymentMethod1,
+  paymentSurchargeAmount,
+  setData
+ } = useUserStore()
+ const isTrialBooking = purpose === "trial"
+ const baseAmount = isTrialBooking ? TRIAL_FEE : price
+ const isSecondCollectionStep = isPartialPayment && paymentCollectionStep === 2
+ const payableAmount = getPaymentCollectionAmount({
+  baseAmount,
+  method: "upi",
+  isPartialPayment,
+  firstInstallmentAmount: paidAmount,
+  paymentCollectionStep,
+  lockedSurchargeAmount: paymentSurchargeAmount
+ })
+ const resolvedSurchargeAmount = getResolvedPaymentSurchargeAmount(baseAmount, "upi", paymentSurchargeAmount)
+ const totalPayableAmount = getPaymentTotalAmount(baseAmount, "upi", paymentSurchargeAmount)
 
- const staffPin = (process.env.NEXT_PUBLIC_STAFF_PIN || process.env.NEXT_PUBLIC_ADMIN_PIN || "2580").trim()
+ const handleFinish = async () => {
+  if (isPartialPayment && paymentCollectionStep === 1) {
+   const nextDueAmount = getRemainingPaymentAmount(baseAmount, paidAmount, "upi", paymentSurchargeAmount)
 
- const handleBack = () => {
-  setData({
-   paymentReference: "",
-   paymentMethod: "",
-   paymentStatus: ""
-  })
-  navigate("/payment")
- }
+   setData({
+    paymentMethod: "upi",
+    paymentMethod1: "upi",
+    paymentMethod2: "",
+    paymentStatus: "partial",
+    paymentCollectionStep: 2,
+    paymentSurchargeAmount: resolvedSurchargeAmount,
+    paymentTotalAmount: totalPayableAmount,
+    dueAmount: nextDueAmount
+   })
 
- const handleConfirm = async () => {
-  if (pin.trim() !== staffPin) {
-   setPinError("Invalid staff PIN.")
+   await Promise.resolve()
+   navigate("/payment", { replace: true })
    return
   }
 
-  try {
-   setConfirming(true)
-   setPinError("")
+  setData({
+   paymentMethod: "upi",
+   paymentMethod1: isPartialPayment ? paymentMethod1 || "upi" : "upi",
+   paymentMethod2: isPartialPayment ? "upi" : "",
+   paymentStatus: "paid",
+   dueAmount: isPartialPayment ? payableAmount : 0,
+   paymentSurchargeAmount: resolvedSurchargeAmount,
+   paymentTotalAmount: totalPayableAmount
+  })
 
-   setData({ paymentStatus: "paid" })
-   navigate("/success")
-  } catch (error) {
-   console.error("Failed to confirm UPI payment:", error)
-   setPinError("We could not confirm this payment right now. Please try again.")
-  } finally {
-   setConfirming(false)
-  }
+  await Promise.resolve()
+  navigate("/consent", { replace: true })
  }
 
  return (
-  <Container>
+  <Container scrollable>
    <div style={styles.wrapper}>
-    <h2 style={styles.heading}>Scan UPI QR</h2>
-
-    <p style={styles.description}>
-     Ask the member to scan the QR below and show the successful payment before you confirm.
-    </p>
+    <h2 style={styles.heading}>UPI Payment</h2>
 
     <div style={styles.qrCard}>
-     <img
-      src="/upi-qr-placeholder.svg"
-      alt="UPI QR code"
-      style={styles.qrImage}
-     />
+     <div style={styles.brandRow}>
+      <span style={styles.bankName}>Kotak Mahindra Bank</span>
+     </div>
+
+     <h3 style={styles.payeeName}>
+      {UPI_PAYEE_NAME}
+     </h3>
+
+     <p style={styles.upiIdText}>
+      UPI ID: {UPI_ID}
+     </p>
+
+     <p style={styles.upiHint}>
+      Use the UPI ID above to complete payment from any UPI app.
+     </p>
 
      <div style={styles.amountBlock}>
-      <span style={styles.amountLabel}>Amount Payable</span>
-      <strong style={styles.amount}>{formatPrice(price)}</strong>
+      <span style={styles.amountLabel}>{isPartialPayment ? "Partial Amount (Now)" : "Amount Payable"}</span>
+      <strong style={styles.amount}>{formatPrice(payableAmount)}</strong>
+      {isPartialPayment && (
+       <span style={{ fontSize: "13px", color: "#f59e0b", fontWeight: 700 }}>
+        {isSecondCollectionStep ? "Final collection" : `Base remaining: ${formatPrice(dueAmount)}`}
+       </span>
+      )}
      </div>
+
+    {isTrialBooking && (
+     <div style={styles.noticeCard}>
+      <p style={styles.noticeTitle}>Trial booking fee: ₹{TRIAL_FEE}</p>
+      <p style={styles.noticeText}>{TRIAL_FEE_NOTE}</p>
+     </div>
+    )}
+
+    {isPartialPayment && (
+     <div style={styles.noticeCard}>
+      <p style={styles.noticeTitle}>{isSecondCollectionStep ? "Final collection" : "First collection"}</p>
+      <p style={styles.noticeText}>
+       {isSecondCollectionStep
+        ? `Collect the remaining ₹${dueAmount.toLocaleString("en-IN")} now.`
+        : `After this ₹${paidAmount.toLocaleString("en-IN")} collection, the remaining amount will be ₹${getRemainingPaymentAmount(baseAmount, paidAmount, "upi", paymentSurchargeAmount).toLocaleString("en-IN")}.`}
+      </p>
+     </div>
+    )}
+
+    {resolvedSurchargeAmount > 0 && (
+     <div style={styles.noticeCard}>
+      <p style={styles.noticeTitle}>Surcharge Applied</p>
+      <p style={styles.noticeText}>
+       ₹{resolvedSurchargeAmount.toLocaleString("en-IN")} has already been added on the full plan amount. Total payable is ₹{totalPayableAmount.toLocaleString("en-IN")}.
+      </p>
+     </div>
+    )}
+
     </div>
 
     <div style={styles.summaryCard}>
-     <h3 style={styles.summaryHeading}>Payment Summary</h3>
+     <h3 style={styles.summaryHeading}>Booking Snapshot</h3>
      <div style={styles.summaryRows}>
-      <p><b>Name:</b> {name}</p>
       <p><b>Program:</b> {program}</p>
       <p><b>Duration:</b> {duration}</p>
       <p><b>Batch:</b> {batchType || "-"} {batchTime ? `| ${batchTime}` : ""}</p>
      </div>
     </div>
 
-    <div style={styles.actions}>
-     <button
-      type="button"
-      onClick={() => {
-       void handleBack()
-      }}
-      style={styles.secondaryButton}
-     >
-      Change Method
-     </button>
+    <div style={styles.sessionCard}>
+     <div style={styles.sessionActions}>
+      <PrimaryButton
+       title="Finish"
+       onClick={() => {
+        void handleFinish()
+       }}
+      />
+     </div>
     </div>
-
-    <StaffPinConfirmation
-     pin={pin}
-     error={pinError}
-     helperText="After the member completes payment, enter the staff PIN to verify and finish the enrollment."
-     buttonTitle="Confirm UPI Payment"
-     loading={confirming}
-     onPinChange={(value) => {
-      setPin(value)
-      setPinError("")
-     }}
-     onConfirm={() => {
-      void handleConfirm()
-     }}
-    />
    </div>
   </Container>
  )
@@ -112,8 +169,8 @@ const styles = {
  wrapper: {
   maxWidth: "560px",
   margin: "0 auto",
-  textAlign: "center" as const
- },
+ textAlign: "center" as const
+},
 
  heading: {
   ...typography.subtitle,
@@ -130,25 +187,90 @@ const styles = {
   padding: spacing.lg,
   borderRadius: radius.lg,
   border: `1px solid ${colors.border}`,
-  background: "rgba(255,255,255,0.03)",
+  background: "linear-gradient(180deg, rgba(240,244,248,0.98), rgba(255,255,255,0.92))",
   display: "flex",
   flexDirection: "column" as const,
   alignItems: "center",
   gap: spacing.md
  },
 
- qrImage: {
-  width: "min(100%, 280px)",
-  borderRadius: radius.md,
-  background: "#fff",
-  padding: "14px",
-  boxSizing: "border-box" as const
+ brandRow: {
+  width: "100%",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: spacing.sm,
+  flexWrap: "wrap" as const
+ },
+
+ bankName: {
+  color: "#163A6B",
+  fontSize: "18px",
+  fontWeight: 800,
+  letterSpacing: "0.01em"
+ },
+
+ upiLabel: {
+  color: "#4B5563",
+  fontSize: "12px",
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase" as const
+ },
+
+ payToLabel: {
+  color: "#4B5563",
+  fontSize: "14px",
+  fontWeight: 700,
+  margin: 0
+ },
+
+ payeeName: {
+  margin: 0,
+  color: "#111827",
+  fontSize: "clamp(26px, 4vw, 38px)",
+  fontWeight: 800,
+  lineHeight: 1.05,
+  textAlign: "center" as const
+ },
+
+ upiIdText: {
+  color: "#4B5563",
+  fontSize: "16px",
+  fontWeight: 700,
+  textAlign: "center" as const,
+  wordBreak: "break-word" as const,
+  margin: 0
  },
 
  amountBlock: {
   display: "flex",
   flexDirection: "column" as const,
   gap: spacing.xs
+ },
+
+ noticeCard: {
+  width: "100%",
+  padding: "14px 16px",
+  borderRadius: radius.md,
+  border: `1px solid ${colors.border}`,
+  background: "rgba(200,169,108,0.08)",
+  textAlign: "left" as const
+ },
+
+ noticeTitle: {
+  color: colors.primaryLight,
+  fontSize: "12px",
+  fontWeight: 800,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.12em",
+  marginBottom: "6px"
+ },
+
+ noticeText: {
+  color: colors.textSecondary,
+  lineHeight: 1.6,
+  fontSize: "13px"
  },
 
  amountLabel: {
@@ -162,6 +284,13 @@ const styles = {
   color: colors.primaryLight,
   fontSize: "34px",
   fontWeight: 800
+ },
+
+ upiHint: {
+  color: "#4B5563",
+  fontSize: "15px",
+  fontWeight: 700,
+  margin: 0
  },
 
  summaryCard: {
@@ -187,7 +316,21 @@ const styles = {
   lineHeight: 1.6
  },
 
- actions: {
+ sessionCard: {
+  marginTop: spacing.lg,
+  padding: spacing.lg,
+  borderRadius: radius.lg,
+  border: `1px solid ${colors.border}`,
+  background: "rgba(106,166,154,0.12)"
+ },
+
+ sessionText: {
+  color: colors.textPrimary,
+  lineHeight: 1.6,
+  marginBottom: spacing.md
+ },
+
+ sessionActions: {
   display: "flex",
   gap: spacing.md,
   justifyContent: "center",
@@ -195,18 +338,11 @@ const styles = {
   flexWrap: "wrap" as const
  },
 
- secondaryButton: {
-  minHeight: "52px",
-  marginTop: "30px",
-  borderRadius: "999px",
-  border: `1px solid ${colors.borderStrong}`,
-  background: "transparent",
-  color: colors.primaryLight,
-  padding: "14px 22px",
-  cursor: "pointer",
-  letterSpacing: "0.12em",
-  textTransform: "uppercase" as const,
-  fontSize: "12px",
-  fontWeight: 700
+ actions: {
+  display: "flex",
+  gap: spacing.md,
+  justifyContent: "center",
+  alignItems: "center",
+  flexWrap: "wrap" as const
  }
 }

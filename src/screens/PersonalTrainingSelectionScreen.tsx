@@ -4,31 +4,36 @@ import Container from "../layout/Container"
 import Grid from "../layout/Grid"
 import OptionCard from "../components/cards/OptionCard"
 
+import { usePlanCatalog } from "../hooks/usePlanCatalog"
 import { useUserStore } from "../store/userStore"
-import { personalTraining } from "../database/personalTraining"
-import type { PersonalTrainingCoach } from "../types/domain"
+import { getTrialPersonalTrainingPricing, TRIAL_FEE } from "../utils/trialPricing"
+import type { CatalogPersonalTrainingCoach } from "../services/planCatalog"
 
-import { typography, spacing } from "../styles/GlobalStyles"
+import { colors, spacing, typography } from "../styles/GlobalStyles"
 
 export default function PersonalTrainingSelectionScreen(){
 
  const navigate = useNavigate()
+ const { personalTraining, loading } = usePlanCatalog()
 
  const { purpose, setData } = useUserStore()
 
- const selectOption = (coach: PersonalTrainingCoach, type:"session" | "package") => {
+ const selectOption = (coach: CatalogPersonalTrainingCoach, type:"session" | "package") => {
 
   if (purpose === "trial") {
+   const trialPricing = getTrialPersonalTrainingPricing(coach)
+
    setData({
     coach: coach.coach,
-    duration: "Free Trial",
-    price: 0,
+    status: "trial",
+    duration: trialPricing.duration,
+    price: trialPricing.price,
     paymentReference: "",
     paymentMethod: "",
-    paymentStatus: "free"
+    paymentStatus: ""
    })
 
-   navigate("/batch-type")
+   navigate("/review")
    return
   }
 
@@ -56,13 +61,29 @@ export default function PersonalTrainingSelectionScreen(){
 
   }
 
-  navigate("/batch-type")
+  navigate("/review")
 
+ }
+
+ if (loading && personalTraining.length === 0) {
+  return (
+   <Container scrollable>
+    <div
+     style={{
+      textAlign: "center",
+      padding: spacing.xl,
+      color: colors.textSecondary
+     }}
+    >
+     Loading personal training options...
+    </div>
+   </Container>
+  )
  }
 
  return(
 
-  <Container>
+  <Container scrollable>
 
    <h2
     style={{
@@ -74,28 +95,34 @@ export default function PersonalTrainingSelectionScreen(){
     Select Personal Training
    </h2>
 
-   <Grid>
+	   <Grid>
 
-    {personalTraining.map((coach) => (
-     <Fragment key={coach.coach}>
-     
-      <OptionCard
-       key={`${coach.coach}-session`}
-       title={`${coach.coach} - ₹${coach.perSession}`}
-       subtitle="1 Session"
-       onClick={()=>selectOption(coach,"session")}
-      />
+     {personalTraining.map((coach) => (
+      purpose === "trial" ? (
+       <OptionCard
+        key={`${coach.coach}-trial`}
+        title={coach.coach}
+        subtitle={`1 Session Trial - ₹${TRIAL_FEE}. This amount will be adjusted in your total plan fee when you enroll.`}
+        onClick={()=>selectOption(coach,"session")}
+       />
+      ) : (
+	      <Fragment key={coach.coach}>
+	       <OptionCard
+	        key={`${coach.coach}-session`}
+	        title={`${coach.coach} - ₹${coach.perSession}`}
+	        subtitle="1 Session"
+	        onClick={()=>selectOption(coach,"session")}
+	       />
 
-      <OptionCard
-       key={`${coach.coach}-package`}
-       title={`${coach.coach} - ₹${coach.packagePrice}`}
-       subtitle={`${coach.packageSessions} Sessions`}
-       onClick={()=>selectOption(coach,"package")}
-      />
-
-     </Fragment>
-
-    ))}
+	       <OptionCard
+	        key={`${coach.coach}-package`}
+	        title={`${coach.coach} - ₹${coach.packagePrice}`}
+	        subtitle={`${coach.packageSessions} Sessions`}
+	        onClick={()=>selectOption(coach,"package")}
+	       />
+	      </Fragment>
+	     )
+	    ))}
 
    </Grid>
 

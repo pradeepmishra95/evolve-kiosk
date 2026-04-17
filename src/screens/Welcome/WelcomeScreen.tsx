@@ -1,10 +1,25 @@
 import { useNavigate } from "@/navigation/useAppNavigation"
 import Container from "../../layout/Container"
-import { colors, typography } from "../../styles/GlobalStyles"
+import { useUserStore } from "../../store/userStore"
+import { colors, spacing, typography } from "../../styles/GlobalStyles"
 
 export default function WelcomeScreen(){
 
  const navigate = useNavigate()
+ const reset = useUserStore((state) => state.reset)
+ const hasDraftFlow = useUserStore((state) =>
+  Boolean(
+   state.purpose ||
+    state.name ||
+    state.phone ||
+    state.exerciseType ||
+    state.program ||
+    state.batchType ||
+    state.batchTime ||
+    state.batchDate ||
+    state.paymentStatus
+ )
+ )
 
  return(
 
@@ -12,90 +27,117 @@ export default function WelcomeScreen(){
 
    <div
     style={{
-     width:"min(100%, 560px)",
-     padding:"clamp(4px, 0.8vh, 10px) clamp(4px, 1vw, 10px) clamp(10px, 1.6vh, 18px)",
-     textAlign:"center"
+     width:"min(100%, 640px)",
+     height:"100%",
+     minHeight:"100%",
+     margin:"0 auto",
+     padding:"clamp(2px, 0.6vh, 8px) 0 clamp(12px, 2vh, 20px)",
+     display:"grid",
+     gridTemplateRows:"auto 1fr",
+     gap:spacing.lg
     }}
    >
-
-    <p
-     style={{
-      color: colors.secondary,
-      fontSize: "clamp(12px, 1.5vw, 13px)",
-      letterSpacing: "0.28em",
-      textTransform: "uppercase",
-      marginBottom: "clamp(14px, 2vh, 18px)",
-      fontWeight: 700
-     }}
-    >
-     Evolve Performance Kiosk
-    </p>
-
-    <h1
-     style={{
-      ...typography.title,
-      fontSize:"clamp(36px, 6.2vw, 64px)",
-      color: colors.textPrimary,
-      lineHeight:"0.94",
-      marginBottom:"12px"
-     }}
-    >
-     Sculpt Strength.
-     <br />
-     Train With Intent.
-    </h1>
-
-    <p
-     style={{
-      color: colors.textSecondary,
-      fontSize:"clamp(14px, 1.7vw, 17px)",
-      maxWidth: "460px",
-      margin: "0 auto clamp(20px, 3vh, 28px)"
-     }}
-    >
-     A guided premium sign-up flow for trials, memberships, and enquiries in under a minute.
-    </p>
-
-    <button
-     onClick={() => navigate("/phone")}
-     style={{
-      width:"100%",
-      padding:"clamp(14px, 2vh, 18px)",
-      borderRadius:"999px",
-      border:"none",
-      fontSize:"clamp(14px, 1.8vw, 15px)",
-      fontWeight:800,
-      letterSpacing:"0.22em",
-      textTransform:"uppercase",
-      background:"linear-gradient(135deg, #c8a96c 0%, #f3e0b6 45%, #d7b57a 100%)",
-      color:colors.textOnAccent,
-      cursor:"pointer",
-      boxShadow:"0 20px 44px rgba(200,169,108,0.26)"
-     }}
-     className="touch-feedback"
-    >
-     Begin Your Journey
-    </button>
 
     <div
      style={{
       display: "flex",
+      alignItems: "center",
       justifyContent: "center",
-      gap: "clamp(12px, 2vw, 18px)",
-      flexWrap: "wrap",
-      marginTop:"clamp(14px, 2vh, 18px)",
-      color:colors.textMuted,
-      fontSize:"clamp(12px, 1.5vw, 13px)",
-      letterSpacing: "0.08em",
-      textTransform: "uppercase"
+      minHeight: 0,
+      padding: "clamp(8px, 2vh, 18px) 0"
      }}
     >
-     <span>30 second flow</span>
-     <span>Trial and membership</span>
-     <span>Premium onboarding</span>
-    </div>
+     <div
+      style={{
+       width: "100%",
+       maxWidth: "560px",
+       margin: "0 auto",
+       textAlign: "center",
+       display: "flex",
+       flexDirection: "column",
+       alignItems: "center"
+      }}
+     >
+      <h1
+       style={{
+        ...typography.title,
+        fontSize:"clamp(36px, 6vw, 64px)",
+        color: colors.textPrimary,
+        lineHeight:"0.94",
+        marginBottom:"14px",
+        textAlign: "center"
+       }}
+      >
+       Sculpt Strength.
+       <br />
+       Train With Intent.
+      </h1>
+
+      <div
+       style={{
+        display: "flex",
+        gap: "12px",
+        flexWrap: "wrap",
+        justifyContent: "center"
+       }}
+      >
+      <button
+       onClick={() => {
+        reset()
+        navigate("/phone")
+       }}
+	       style={{
+         width:"min(100%, 360px)",
+         padding:"clamp(14px, 2vh, 18px)",
+        borderRadius:"999px",
+        border:"none",
+        fontSize:"clamp(14px, 1.8vw, 15px)",
+        fontWeight:800,
+        letterSpacing:"0.22em",
+        textTransform:"uppercase",
+        textAlign: "center",
+        background:"linear-gradient(135deg, #c8a96c 0%, #f3e0b6 45%, #d7b57a 100%)",
+        color:colors.textOnAccent,
+        cursor:"pointer",
+         boxShadow:"0 20px 44px rgba(200,169,108,0.26)"
+        }}
+        className="touch-feedback"
+       >
+        Begin Your Journey
+       </button>
+
+       {hasDraftFlow && (
+        <button
+         type="button"
+         onClick={() => {
+          navigate("/review")
+         }}
+         style={{
+          minWidth: "220px",
+          padding: "14px 20px",
+          borderRadius: "999px",
+          border: `1px solid ${colors.borderStrong}`,
+          background: "transparent",
+          color: colors.primaryLight,
+          cursor: "pointer",
+          fontSize: "13px",
+          fontWeight: 800,
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
+          textAlign: "center"
+         }}
+        >
+         Resume Current Flow
+        </button>
+       )}
+
+      </div>
 
    </div>
+
+  </div>
+
+  </div>
 
   </Container>
 

@@ -2,9 +2,10 @@ import type { MetadataRoute } from "next"
 
 export default function manifest(): MetadataRoute.Manifest {
  return {
+  id: "/",
   name: "Evolve Performance Kiosk",
   short_name: "Evolve Kiosk",
-  description: "Standalone kiosk flow for trials, memberships, and enquiries.",
+  description: "Standalone kiosk flow for paid trial bookings, memberships, and enquiries.",
   start_url: "/",
   scope: "/",
   display: "standalone",

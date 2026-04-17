@@ -1,0 +1,865 @@
+"use client"
+
+import { useCallback, useEffect, useRef, useState } from "react"
+import { useNavigate } from "@/navigation/useAppNavigation"
+import Container from "../../layout/Container"
+import PrimaryButton from "../../components/buttons/PrimaryButton"
+import { useToastStore } from "../../store/toastStore"
+import { useUserStore } from "../../store/userStore"
+import { getProfilePhotoUploadStatusMessage, uploadProfilePhoto } from "../../services/profilePhoto"
+import type { ProfilePhotoSource } from "../../types/domain"
+import { colors, radius, shadow, spacing, typography } from "../../styles/GlobalStyles"
+import { formatPhoneNumber } from "../../utils/validation"
+
+const cameraConstraintAttempts: MediaStreamConstraints[] = [
+ {
+  video: {
+   facingMode: {
+    exact: "user"
+   }
+  },
+  audio: false
+ },
+ {
+  video: {
+   facingMode: {
+    exact: "environment"
+   }
+  },
+  audio: false
+ },
+ {
+  video: true,
+  audio: false
+ }
+]
+
+const PROFILE_PHOTO_FILE_NAME = "profile-photo.jpg"
+
+const canvasToBlob = (canvas: HTMLCanvasElement, quality = 0.9) =>
+ new Promise<Blob>((resolve, reject) => {
+  canvas.toBlob(
+   (blob) => {
+    if (!blob) {
+     reject(new Error("Could not capture the photo."))
+     return
+    }
+
+    resolve(blob)
+   },
+   "image/jpeg",
+   quality
+  )
+ })
+
+const captureFrameFromVideo = async (videoElement: HTMLVideoElement) => {
+ const sourceWidth = videoElement.videoWidth
+ const sourceHeight = videoElement.videoHeight
+
+ if (!sourceWidth || !sourceHeight) {
+  throw new Error("Camera preview is not ready yet.")
+ }
+
+ const maxSize = 1280
+ const scale = Math.min(maxSize / sourceWidth, maxSize / sourceHeight, 1)
+ const width = Math.max(1, Math.round(sourceWidth * scale))
+ const height = Math.max(1, Math.round(sourceHeight * scale))
+
+ const canvas = document.createElement("canvas")
+ canvas.width = width
+ canvas.height = height
+
+ const context = canvas.getContext("2d")
+
+ if (!context) {
+  throw new Error("Could not capture the photo.")
+ }
+
+ context.drawImage(videoElement, 0, 0, width, height)
+
+ return canvasToBlob(canvas, 0.9)
+}
+
+const getCameraErrorMessage = (error: unknown) => {
+ const name =
+  typeof error === "object" && error && "name" in error ? String(error.name) : ""
+
+ if (name === "NotAllowedError") {
+  return "Camera permission was denied. Allow camera access and try again."
+ }
+
+ if (name === "NotFoundError") {
+  return "No camera was found on this device."
+ }
+
+ if (name === "NotReadableError") {
+  return "The camera is already being used by another app."
+ }
+
+ return "Could not open the camera on this browser. Try gallery instead."
+}
+
+export default function ProfilePhotoScreen() {
+ const navigate = useNavigate()
+ const showToast = useToastStore((state) => state.showToast)
+
+ const {
+  name,
+  phone,
+  countryCode,
+  age,
+  purpose,
+  status,
+  profilePhotoUrl,
+  profilePhotoStoragePath,
+  profilePhotoHash,
+  profilePhotoUploadedAt,
+  profilePhotoSource,
+  setData
+ } = useUserStore()
+
+ const [cameraOpen, setCameraOpen] = useState(false)
+ const [cameraReady, setCameraReady] = useState(false)
+ const [cameraLoading, setCameraLoading] = useState(false)
+ const [photoUploading, setPhotoUploading] = useState(false)
+ const [errorMessage, setErrorMessage] = useState("")
+ const [statusMessage, setStatusMessage] = useState(
+  profilePhotoUrl || profilePhotoStoragePath
+   ? "Profile photo already saved."
+   : "Capture a client profile photo to continue."
+ )
+ const [pendingBlob, setPendingBlob] = useState<Blob | null>(null)
+ const [pendingFileName, setPendingFileName] = useState(PROFILE_PHOTO_FILE_NAME)
+ const [pendingSource, setPendingSource] = useState<ProfilePhotoSource>("camera")
+ const [draftPreviewUrl, setDraftPreviewUrl] = useState("")
+ const galleryInputRef = useRef<HTMLInputElement | null>(null)
+ const videoRef = useRef<HTMLVideoElement | null>(null)
+ const streamRef = useRef<MediaStream | null>(null)
+ const previewUrlRef = useRef<string | null>(null)
+
+ const displayPhotoUrl = draftPreviewUrl || profilePhotoUrl
+ const hasSavedPhoto = Boolean(profilePhotoUrl || profilePhotoStoragePath)
+ const isRequiredFlow = status === "new" && purpose !== "enquiry"
+ const canContinue = (!isRequiredFlow || hasSavedPhoto) && !photoUploading
+ const phoneLabel = formatPhoneNumber(phone, countryCode) || phone || "-"
+ const ageLabel = typeof age === "number" ? `${age} years` : "-"
+
+ const releaseDraftPreview = useCallback(() => {
+  if (previewUrlRef.current) {
+   URL.revokeObjectURL(previewUrlRef.current)
+   previewUrlRef.current = null
+  }
+ }, [])
+
+ const stopCamera = useCallback(() => {
+  streamRef.current?.getTracks().forEach((track) => track.stop())
+  streamRef.current = null
+
+  if (videoRef.current) {
+   videoRef.current.srcObject = null
+  }
+
+  setCameraOpen(false)
+  setCameraReady(false)
+ }, [])
+
+ useEffect(() => {
+  if (!cameraOpen || !videoRef.current || !streamRef.current) {
+   return
+  }
+
+  const videoElement = videoRef.current
+  videoElement.srcObject = streamRef.current
+
+  void videoElement.play().catch(() => {
+   setErrorMessage("Could not start the live camera preview. Try gallery instead.")
+   stopCamera()
+  })
+ }, [cameraOpen, stopCamera])
+
+ useEffect(() => {
+  return () => {
+   stopCamera()
+   releaseDraftPreview()
+  }
+ }, [releaseDraftPreview, stopCamera])
+
+ useEffect(() => {
+  if (profilePhotoUrl && !draftPreviewUrl) {
+   setStatusMessage("Profile photo already saved.")
+  }
+ }, [draftPreviewUrl, profilePhotoUrl])
+
+ const uploadPhoto = async (blob: Blob, source: ProfilePhotoSource, fileName: string) => {
+  if (!name || !phone) {
+   setErrorMessage("Member details are missing. Please go back and fill them again.")
+   return
+  }
+
+  try {
+   setPhotoUploading(true)
+   setErrorMessage("")
+   setStatusMessage("Preparing profile photo...")
+
+   const result = await uploadProfilePhoto({
+    name: name.trim(),
+    phone,
+    countryCode,
+    source,
+    blob,
+    fileName,
+    contentType: blob.type || "image/jpeg",
+    onProgress: (progress) => {
+     setStatusMessage(getProfilePhotoUploadStatusMessage(progress))
+    }
+   })
+
+   setData({
+    profilePhotoUrl: result.downloadUrl,
+    profilePhotoStoragePath: result.storagePath,
+    profilePhotoHash: result.hash,
+    profilePhotoUploadedAt: result.uploadedAt,
+    profilePhotoSource: result.source
+   })
+
+   releaseDraftPreview()
+   setDraftPreviewUrl("")
+   setPendingBlob(null)
+   setPendingFileName(PROFILE_PHOTO_FILE_NAME)
+   setPendingSource(source)
+   setStatusMessage("Profile photo saved successfully. Continue to the next step.")
+   showToast("Profile photo saved.", "success")
+  } catch (error) {
+   setErrorMessage(error instanceof Error ? error.message : "Could not save the profile photo.")
+   setStatusMessage("Profile photo upload failed. Please retry.")
+  } finally {
+   setPhotoUploading(false)
+  }
+ }
+
+ const handleOpenCamera = async () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+   setErrorMessage("This browser does not support camera access. Use gallery instead.")
+   return
+  }
+
+  try {
+   setCameraLoading(true)
+   setErrorMessage("")
+   setStatusMessage("Opening camera...")
+   stopCamera()
+   setCameraReady(false)
+
+   let stream: MediaStream | null = null
+   let lastError: unknown = null
+
+   for (const constraints of cameraConstraintAttempts) {
+    try {
+     stream = await navigator.mediaDevices.getUserMedia(constraints)
+     break
+    } catch (attemptError) {
+     lastError = attemptError
+    }
+   }
+
+   if (!stream) {
+    throw lastError
+   }
+
+   streamRef.current = stream
+   setCameraOpen(true)
+   setStatusMessage("Camera is ready. Align the face and capture the photo.")
+  } catch (cameraError) {
+   setErrorMessage(getCameraErrorMessage(cameraError))
+   setStatusMessage("Use gallery or try the camera again.")
+  } finally {
+   setCameraLoading(false)
+  }
+ }
+
+ const handleSelectGallery = () => {
+  galleryInputRef.current?.click()
+ }
+
+ const handleGalleryFile = async (file?: File | null) => {
+  if (!file) {
+   return
+  }
+
+  if (!file.type.startsWith("image/")) {
+   setErrorMessage("Please choose an image file.")
+   return
+  }
+
+  releaseDraftPreview()
+  const objectUrl = URL.createObjectURL(file)
+  previewUrlRef.current = objectUrl
+  setDraftPreviewUrl(objectUrl)
+  setPendingBlob(file)
+  setPendingFileName(file.name || PROFILE_PHOTO_FILE_NAME)
+  setPendingSource("gallery")
+  void uploadPhoto(file, "gallery", file.name || PROFILE_PHOTO_FILE_NAME)
+ }
+
+ const handleCapturePhoto = async () => {
+  if (!videoRef.current) {
+   setErrorMessage("Camera preview is not ready yet.")
+   return
+  }
+
+  try {
+   setCameraLoading(true)
+   setErrorMessage("")
+   const blob = await captureFrameFromVideo(videoRef.current)
+   stopCamera()
+
+   releaseDraftPreview()
+   const objectUrl = URL.createObjectURL(blob)
+   previewUrlRef.current = objectUrl
+   setDraftPreviewUrl(objectUrl)
+   setPendingBlob(blob)
+   setPendingFileName(PROFILE_PHOTO_FILE_NAME)
+   setPendingSource("camera")
+   void uploadPhoto(blob, "camera", PROFILE_PHOTO_FILE_NAME)
+  } catch (captureError) {
+   setErrorMessage(captureError instanceof Error ? captureError.message : "Could not capture the photo.")
+   setStatusMessage("Try capturing the photo again.")
+  } finally {
+   setCameraLoading(false)
+  }
+ }
+
+ const handleRetryUpload = () => {
+  if (!pendingBlob) {
+   setErrorMessage("Capture or select a photo first.")
+   return
+  }
+
+  void uploadPhoto(pendingBlob, pendingSource, pendingFileName)
+ }
+
+ const handleContinue = () => {
+  if (!canContinue) {
+   setErrorMessage("Please capture and save the profile photo before continuing.")
+   return
+  }
+
+  navigate("/program")
+ }
+
+ return (
+  <Container scrollable>
+   <div style={styles.wrapper}>
+    <div style={styles.surface}>
+     <div style={styles.header}>
+      <div>
+       <p style={styles.eyebrow}>Client Profile</p>
+       <h1 style={styles.title}>Capture a premium profile photo</h1>
+       <p style={styles.description}>
+        Take a clear client picture for the member profile. This keeps the record easy to identify for staff and
+        returns safely to the same profile after refresh.
+       </p>
+      </div>
+
+      <div style={styles.metaPills}>
+       <span style={styles.metaPill}>Name: {name || "-"}</span>
+       <span style={styles.metaPill}>Phone: {phoneLabel}</span>
+       <span style={styles.metaPill}>Age: {ageLabel}</span>
+      </div>
+     </div>
+
+     <div style={styles.grid}>
+      <div style={styles.guidanceCard}>
+       <h2 style={styles.sectionTitle}>Why this step matters</h2>
+
+       <ul style={styles.guidanceList}>
+        <li style={styles.guidanceItem}>Profile photo becomes part of the member record.</li>
+        <li style={styles.guidanceItem}>Camera capture is the primary path, gallery is a fallback.</li>
+        <li style={styles.guidanceItem}>The photo is stored in Firebase Storage with Firestore metadata.</li>
+        <li style={styles.guidanceItem}>You can retake the photo anytime before moving ahead.</li>
+       </ul>
+
+       <div style={styles.statusCard}>
+        <span style={styles.statusLabel}>Status</span>
+        <p style={styles.statusText}>{statusMessage}</p>
+       </div>
+
+       {errorMessage && <p style={styles.errorText}>{errorMessage}</p>}
+
+       {!isRequiredFlow && (
+        <p style={styles.helperText}>
+         This photo step is still available as a profile enhancement, even outside the main registration flow.
+        </p>
+       )}
+      </div>
+
+      <div style={styles.captureCard}>
+       <div style={styles.previewFrame}>
+        {displayPhotoUrl ? (
+         <img src={displayPhotoUrl} alt="Client profile preview" style={styles.previewImage} />
+        ) : (
+         <div style={styles.placeholder}>
+          <div style={styles.placeholderAvatar}>Photo</div>
+          <p style={styles.placeholderTitle}>No photo captured yet</p>
+          <p style={styles.placeholderText}>Use the camera or gallery to create the member profile picture.</p>
+         </div>
+        )}
+       </div>
+
+       <div style={styles.actionRow}>
+        <button
+         type="button"
+         onClick={() => {
+          void handleOpenCamera()
+         }}
+         style={styles.secondaryAction}
+         disabled={cameraLoading || photoUploading || cameraOpen}
+        >
+         {cameraLoading && !cameraOpen ? "Preparing..." : photoUploading ? "Uploading..." : "Open Camera"}
+        </button>
+
+        <button
+         type="button"
+         onClick={handleSelectGallery}
+         style={styles.secondaryAction}
+         disabled={cameraLoading || photoUploading}
+        >
+         Choose Gallery
+        </button>
+
+        <button
+         type="button"
+         onClick={handleRetryUpload}
+         style={styles.tertiaryAction}
+         disabled={cameraLoading || photoUploading || !pendingBlob}
+        >
+         Retry Upload
+        </button>
+       </div>
+
+       <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        onChange={(event) => {
+         void handleGalleryFile(event.target.files?.[0] || null)
+         event.currentTarget.value = ""
+        }}
+        style={{ display: "none" }}
+       />
+
+       <div style={styles.infoRow}>
+        <span style={styles.infoChip}>Camera preferred</span>
+        <span style={styles.infoChip}>
+         {profilePhotoSource ? `Saved via ${profilePhotoSource}` : "Gallery fallback"}
+        </span>
+        <span style={styles.infoChip}>
+         {profilePhotoUploadedAt
+          ? `Uploaded ${new Date(profilePhotoUploadedAt).toLocaleDateString()}`
+          : profilePhotoHash
+           ? "Hash recorded"
+           : "Audit ready"}
+        </span>
+       </div>
+      </div>
+     </div>
+
+     <div style={styles.footerCard}>
+      <div>
+       <p style={styles.footerTitle}>Ready to continue?</p>
+       <p style={styles.footerText}>
+        {hasSavedPhoto
+         ? "The profile photo is saved and can be used immediately."
+         : "Capture and save the photo before moving to program selection."}
+       </p>
+      </div>
+
+      <PrimaryButton
+       title={photoUploading ? "Uploading..." : "Continue to Program"}
+       onClick={handleContinue}
+       disabled={!canContinue}
+      />
+     </div>
+    </div>
+
+    {cameraOpen && (
+     <div style={styles.cameraOverlay}>
+      <div style={styles.cameraCard}>
+       <p style={styles.cameraTitle}>Capture Profile Photo</p>
+
+       <div style={styles.cameraViewport}>
+        <video
+         ref={videoRef}
+         autoPlay
+         playsInline
+         muted
+         onLoadedMetadata={() => {
+          setCameraReady(true)
+         }}
+         style={styles.cameraVideo}
+        />
+       </div>
+
+       <p style={styles.cameraHint}>
+        {cameraReady ? "Align the face and capture the photo." : "Starting camera..."}
+       </p>
+
+       <div style={styles.cameraActionRow}>
+        <button
+         type="button"
+         onClick={() => {
+          stopCamera()
+         }}
+         style={styles.cameraSecondaryButton}
+        >
+         Cancel
+        </button>
+
+        <button
+         type="button"
+         onClick={() => {
+          void handleCapturePhoto()
+         }}
+         style={styles.cameraPrimaryButton}
+         disabled={!cameraReady || cameraLoading || photoUploading}
+        >
+         Capture
+        </button>
+       </div>
+      </div>
+     </div>
+    )}
+   </div>
+  </Container>
+ )
+}
+
+const styles = {
+ wrapper: {
+  width: "100%",
+  maxWidth: "960px",
+  margin: "0 auto",
+  boxSizing: "border-box" as const
+ },
+ surface: {
+  borderRadius: radius.xl,
+  border: `1px solid ${colors.border}`,
+  background:
+   "linear-gradient(160deg, rgba(12,22,28,0.94), rgba(7,15,20,0.92) 58%, rgba(16,29,35,0.95))",
+  boxShadow: shadow.card,
+  padding: "clamp(18px, 3vw, 32px)",
+  backdropFilter: "blur(20px)"
+ },
+ header: {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: spacing.lg,
+  flexWrap: "wrap" as const,
+  alignItems: "flex-start"
+ },
+ eyebrow: {
+  color: colors.secondary,
+  fontSize: "12px",
+  letterSpacing: "0.28em",
+  textTransform: "uppercase" as const,
+  fontWeight: 800,
+  marginBottom: spacing.sm
+ },
+ title: {
+  ...typography.title,
+  fontSize: "clamp(30px, 4vw, 48px)",
+  lineHeight: 0.98,
+  marginBottom: spacing.sm
+ },
+ description: {
+  color: colors.textSecondary,
+  lineHeight: 1.7,
+  maxWidth: "620px"
+ },
+ metaPills: {
+  display: "flex",
+  flexWrap: "wrap" as const,
+  gap: spacing.sm,
+  justifyContent: "flex-end"
+ },
+ metaPill: {
+  padding: "10px 14px",
+  borderRadius: "999px",
+  border: `1px solid ${colors.border}`,
+  background: "rgba(255,255,255,0.04)",
+  color: colors.textSecondary,
+  fontSize: "12px",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase" as const,
+  fontWeight: 700
+ },
+ grid: {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.05fr)",
+  gap: spacing.lg,
+  marginTop: spacing.lg
+ },
+ guidanceCard: {
+  padding: spacing.lg,
+  borderRadius: radius.lg,
+  border: `1px solid ${colors.border}`,
+  background: "linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))"
+ },
+ sectionTitle: {
+  color: colors.textPrimary,
+  fontSize: "18px",
+  fontWeight: 800,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase" as const,
+  marginBottom: spacing.md
+ },
+ guidanceList: {
+  listStyle: "none",
+  margin: 0,
+  padding: 0,
+  display: "grid",
+  gap: spacing.sm
+ },
+ guidanceItem: {
+  color: colors.textSecondary,
+  lineHeight: 1.6,
+  paddingLeft: "18px",
+  position: "relative" as const
+ },
+ statusCard: {
+  marginTop: spacing.lg,
+  padding: spacing.md,
+  borderRadius: radius.md,
+  border: `1px solid ${colors.borderStrong}`,
+  background: "rgba(255,255,255,0.03)"
+ },
+ statusLabel: {
+  display: "block",
+  color: colors.primaryLight,
+  fontSize: "11px",
+  letterSpacing: "0.24em",
+  textTransform: "uppercase" as const,
+  fontWeight: 800,
+  marginBottom: spacing.xs
+ },
+ statusText: {
+  color: colors.textPrimary,
+  lineHeight: 1.6,
+  fontSize: "14px"
+ },
+ helperText: {
+  color: colors.textMuted,
+  lineHeight: 1.6,
+  fontSize: "13px",
+  marginTop: spacing.md
+ },
+ errorText: {
+  color: "#F1A596",
+  lineHeight: 1.6,
+  fontSize: "13px",
+  marginTop: spacing.md
+ },
+ captureCard: {
+  padding: spacing.lg,
+  borderRadius: radius.lg,
+  border: `1px solid ${colors.border}`,
+  background: "linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))"
+ },
+ previewFrame: {
+  width: "100%",
+  aspectRatio: "1 / 1",
+  borderRadius: radius.lg,
+  border: `1px solid ${colors.borderStrong}`,
+  overflow: "hidden",
+  background: "linear-gradient(180deg, rgba(12,20,25,0.92), rgba(5,10,14,0.96))",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center"
+ },
+ previewImage: {
+  width: "100%",
+  height: "100%",
+  objectFit: "cover" as const
+ },
+ placeholder: {
+  width: "100%",
+  height: "100%",
+  display: "flex",
+  flexDirection: "column" as const,
+  alignItems: "center",
+  justifyContent: "center",
+  padding: spacing.lg,
+  textAlign: "center" as const,
+  gap: spacing.sm
+ },
+ placeholderAvatar: {
+  width: "108px",
+  height: "108px",
+  borderRadius: "50%",
+  border: `1px solid ${colors.borderStrong}`,
+  background: "radial-gradient(circle at 30% 30%, rgba(243,224,182,0.28), rgba(200,169,108,0.12))",
+  color: colors.primaryLight,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "15px",
+  fontWeight: 800,
+  letterSpacing: "0.18em",
+  textTransform: "uppercase" as const
+ },
+ placeholderTitle: {
+  color: colors.textPrimary,
+  fontSize: "18px",
+  fontWeight: 800
+ },
+ placeholderText: {
+  color: colors.textSecondary,
+  lineHeight: 1.6,
+  maxWidth: "320px"
+ },
+ actionRow: {
+  display: "flex",
+  flexWrap: "wrap" as const,
+  gap: spacing.sm,
+  marginTop: spacing.md
+ },
+ secondaryAction: {
+  borderRadius: "999px",
+  border: `1px solid ${colors.borderStrong}`,
+  background: "rgba(255,255,255,0.04)",
+  color: colors.textPrimary,
+  padding: "12px 16px",
+  cursor: "pointer",
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase" as const
+ },
+ tertiaryAction: {
+  borderRadius: "999px",
+  border: `1px solid ${colors.border}`,
+  background: "transparent",
+  color: colors.primaryLight,
+  padding: "12px 16px",
+  cursor: "pointer",
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase" as const
+ },
+ infoRow: {
+  display: "flex",
+  flexWrap: "wrap" as const,
+  gap: spacing.sm,
+  marginTop: spacing.md
+ },
+ infoChip: {
+  padding: "8px 12px",
+  borderRadius: "999px",
+  border: `1px solid ${colors.border}`,
+  background: "rgba(255,255,255,0.03)",
+  color: colors.textMuted,
+  fontSize: "11px",
+  letterSpacing: "0.12em",
+  textTransform: "uppercase" as const,
+  fontWeight: 700
+ },
+ footerCard: {
+  marginTop: spacing.lg,
+  padding: spacing.lg,
+  borderRadius: radius.lg,
+  border: `1px solid ${colors.border}`,
+  background: "linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: spacing.lg,
+  flexWrap: "wrap" as const
+ },
+ footerTitle: {
+  color: colors.textPrimary,
+  fontSize: "18px",
+  fontWeight: 800,
+  marginBottom: spacing.xs
+ },
+ footerText: {
+  color: colors.textSecondary,
+  lineHeight: 1.6,
+  maxWidth: "560px"
+ },
+ cameraOverlay: {
+  position: "fixed" as const,
+  inset: 0,
+  background: "rgba(4,11,16,0.9)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: spacing.lg,
+  zIndex: 1000
+ },
+ cameraCard: {
+  width: "min(100%, 460px)",
+  padding: spacing.lg,
+  borderRadius: radius.lg,
+  border: `1px solid ${colors.borderStrong}`,
+  background: "linear-gradient(160deg, rgba(17,28,35,0.98), rgba(8,15,20,0.98))",
+  boxShadow: shadow.modal
+ },
+ cameraTitle: {
+  color: colors.textPrimary,
+  fontSize: "18px",
+  fontWeight: 800,
+  textAlign: "center" as const,
+  marginBottom: spacing.md
+ },
+ cameraViewport: {
+  width: "100%",
+  aspectRatio: "1 / 1",
+  borderRadius: radius.md,
+  overflow: "hidden",
+  border: `1px solid ${colors.border}`,
+  background: "#000"
+ },
+ cameraVideo: {
+  width: "100%",
+  height: "100%",
+  objectFit: "cover" as const
+ },
+ cameraHint: {
+  color: colors.textSecondary,
+  fontSize: "13px",
+  lineHeight: 1.5,
+  textAlign: "center" as const,
+  marginTop: spacing.md
+ },
+ cameraActionRow: {
+  display: "flex",
+  justifyContent: "center",
+  gap: spacing.sm,
+  flexWrap: "wrap" as const,
+  marginTop: spacing.md
+ },
+ cameraSecondaryButton: {
+  borderRadius: "999px",
+  border: `1px solid ${colors.border}`,
+  background: "rgba(255,255,255,0.04)",
+  color: colors.textPrimary,
+  padding: "10px 16px",
+  cursor: "pointer",
+  fontSize: "12px",
+  fontWeight: 700
+ },
+ cameraPrimaryButton: {
+  borderRadius: "999px",
+  border: "none",
+  background: colors.primary,
+  color: colors.textOnAccent,
+  padding: "10px 18px",
+  cursor: "pointer",
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase" as const
+ }
+}

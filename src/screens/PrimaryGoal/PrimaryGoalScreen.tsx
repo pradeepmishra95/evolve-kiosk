@@ -19,9 +19,11 @@ export default function PrimaryGoalScreen() {
 
  return (
 
-  <Container>
+  <Container centerContent>
 
-   <div style={{ textAlign: "center" }}>
+   <div style={styles.wrapper}>
+
+    <div style={{ textAlign: "center" }}>
 
     <h2
      style={{
@@ -32,9 +34,9 @@ export default function PrimaryGoalScreen() {
      Select Your Goal
     </h2>
 
-   </div>
+    </div>
 
-   <Grid>
+    <Grid>
 
     <OptionCard
      title="Transformation"
@@ -56,10 +58,20 @@ export default function PrimaryGoalScreen() {
      onClick={() => selectGoal("Confidence / Discipline")}
     />
 
-   </Grid>
+    </Grid>
+
+   </div>
 
   </Container>
 
  )
 
+}
+
+const styles = {
+ wrapper: {
+  width: "100%",
+  maxWidth: "720px",
+  margin: "0 auto"
+ }
 }

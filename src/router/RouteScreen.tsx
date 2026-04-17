@@ -2,12 +2,14 @@
 
 import { lazy, Suspense, useEffect, useLayoutEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
+import { useAuthSync } from "../hooks/useAuthSync"
 import { useUserStore, type UserState } from "../store/userStore"
-import { validateAge, validateName, validatePhoneNumber } from "../utils/validation"
+import { hasCompletedExperienceQuestionnaire } from "../utils/experience"
+import { isPersonalTrainingLabel } from "../utils/labelMatch"
+import { validateAge, validateInjuryDetails, validateName, validatePhoneNumber } from "../utils/validation"
 import RouteFallback from "./RouteFallback"
 
 const WelcomeScreen = lazy(() => import("../screens/Welcome/WelcomeScreen"))
-const PhoneCheckScreen = lazy(() => import("../screens/phoneCheck/PhoneCheckScreen"))
 const ReturnUserScreen = lazy(() => import("../screens/ReturnUser/ReturnUserScreen"))
 const PrimaryGoalScreen = lazy(() => import("../screens/PrimaryGoal/PrimaryGoalScreen"))
 const SpecificGoalScreen = lazy(() => import("../screens/SpecificGoal/SpecificGoalScreen"))
@@ -16,24 +18,27 @@ const ExperienceScreen = lazy(() => import("../screens/Experience/ExperienceScre
 const InjuryScreen = lazy(() => import("../screens/Injury/InjuryScreen"))
 const InjuryDetailsScreen = lazy(() => import("../screens/InjuryDetails/InjuryDetailsScreen"))
 const ExerciseTypeScreen = lazy(() => import("../screens/ExerciseType/ExerciseTypeScreen"))
+const ProfilePhotoScreen = lazy(() => import("../screens/ProfilePhoto/ProfilePhotoScreen"))
 const EnquiryScreen = lazy(() => import("../enquiry/EnquiryScreen"))
+const EnquiryThankYouScreen = lazy(() => import("../screens/EnquiryThankYou/EnquiryThankYouScreen"))
 const ProgramSelectionScreen = lazy(() => import("../screens/ProgramSelection/ProgramSelectionScreen"))
 const PlanSelectionScreen = lazy(() => import("../screens/PlanSelection/PlanSelectionScreen"))
 const PersonalTrainingSelectionScreen = lazy(() => import("../screens/PersonalTrainingSelectionScreen"))
+const PhoneCheckScreen = lazy(() => import("../screens/phoneCheck/PhoneCheckScreen"))
 const BatchTypeScreen = lazy(() => import("../screens/BatchType/BatchTypeScreen"))
 const TimeSelectionScreen = lazy(() => import("../screens/TimeSelection/TimeSelectionScreen"))
 const ReviewScreen = lazy(() => import("../screens/Review/ReviewScreen"))
+const ConsentScreen = lazy(() => import("../screens/Consent/ConsentScreen"))
 const PaymentScreen = lazy(() => import("../screens/Payment/PaymentScreen"))
 const UpiPaymentScreen = lazy(() => import("../screens/Payment/UpiPaymentScreen"))
 const CashPaymentScreen = lazy(() => import("../screens/Payment/CashPaymentScreen"))
 const SuccessScreen = lazy(() => import("../screens/Success/SuccessScreen"))
-const AdminDashboard = lazy(() => import("../screens/admin/AdminDashboard"))
 
 const routeComponents = {
  "/": WelcomeScreen,
- "/admin": AdminDashboard,
  "/batch-type": BatchTypeScreen,
  "/enquiry": EnquiryScreen,
+ "/enquiry-thank-you": EnquiryThankYouScreen,
  "/exercise-type": ExerciseTypeScreen,
  "/experience": ExperienceScreen,
  "/goal": PrimaryGoalScreen,
@@ -46,8 +51,10 @@ const routeComponents = {
  "/phone": PhoneCheckScreen,
  "/plan": PlanSelectionScreen,
  "/program": ProgramSelectionScreen,
+ "/profile-photo": ProfilePhotoScreen,
  "/return-user": ReturnUserScreen,
  "/review": ReviewScreen,
+ "/consent": ConsentScreen,
  "/specific-goal": SpecificGoalScreen,
  "/success": SuccessScreen,
  "/time-selection": TimeSelectionScreen,
@@ -56,89 +63,100 @@ const routeComponents = {
 
 export type KioskRoute = keyof typeof routeComponents
 
-const hasValidPhone = (state: UserState) => validatePhoneNumber(state.phone).isValid
-
 const hasValidUserDetails = (state: UserState) =>
  validateName(state.name).isValid &&
- validatePhoneNumber(state.phone).isValid &&
+ validatePhoneNumber(state.phone, state.countryCode).isValid &&
  validateAge(state.age).isValid &&
  Boolean(state.gender)
+
+const hasCompletedIntake = (state: UserState) =>
+ hasValidUserDetails(state) &&
+ Boolean(state.lookingFor) &&
+ Boolean(state.referenceSource) &&
+ state.injuryAnswered &&
+ (!state.injury || validateInjuryDetails(state.injuryDetails).isValid) &&
+ Boolean(state.priorExerciseExperience) &&
+ hasCompletedExperienceQuestionnaire(state) &&
+ Boolean(state.exerciseType)
+
+const isBookingPurpose = (purpose: UserState["purpose"]) =>
+ purpose === "trial" || purpose === "enroll" || purpose === "renew"
+
+const hasCompletedBatchSelection = (state: UserState) =>
+ Boolean(state.batchType) && Boolean(state.batchTime)
+
+const hasSelectedPlan = (state: UserState) =>
+ Boolean(state.selectedPlanId || state.program)
+
+const hasProfilePhoto = (state: UserState) =>
+ Boolean(state.profilePhotoUrl || state.profilePhotoStoragePath)
+
+const shouldRequireProfilePhoto = (state: UserState) =>
+ state.status === "new" && state.purpose !== "enquiry"
 
 const isExistingMemberFlow = (state: UserState) =>
  state.status === "member" || state.status === "trial"
 
-const getExerciseTypeRedirect = (state: UserState) => {
- if (!hasValidPhone(state)) {
-  return "/phone"
- }
-
+const getExperienceRedirect = (state: UserState) => {
  if (isExistingMemberFlow(state)) {
   return null
  }
 
- if (state.purpose !== "trial" && state.purpose !== "enroll" && state.purpose !== "enquiry") {
+ if (!isBookingPurpose(state.purpose) && state.purpose !== "enquiry") {
   return "/return-user"
  }
 
- if (!hasValidUserDetails(state)) {
+ if (!hasCompletedIntake(state)) {
   return "/user-details"
- }
-
- if (!state.injuryAnswered) {
-  return "/injury"
- }
-
- if (state.injury && !state.injuryDetails.trim()) {
-  return "/injury-details"
- }
-
- return null
-}
-
-const getExperienceRedirect = (state: UserState) => {
- const redirect = getExerciseTypeRedirect(state)
-
- if (redirect) {
-  return redirect
- }
-
- if (!state.exerciseType) {
-  return "/exercise-type"
  }
 
  return null
 }
 
 const getProgramRedirect = (state: UserState) => {
- const redirect = getExperienceRedirect(state)
+  const redirect = getExperienceRedirect(state)
 
- if (redirect) {
-  return redirect
+  if (redirect) {
+   return redirect
+  }
+
+ if (!state.exerciseType || !state.experience) {
+  return "/user-details"
  }
 
- if (!state.experience) {
-  return "/experience"
+ if (shouldRequireProfilePhoto(state) && !hasProfilePhoto(state)) {
+  return "/profile-photo"
  }
 
  return null
 }
 
 const getBatchTypeRedirect = (state: UserState) => {
- const redirect = getProgramRedirect(state)
+  const redirect = getProgramRedirect(state)
 
- if (redirect) {
-  return redirect
- }
+  if (redirect) {
+   return redirect
+  }
 
- if (!state.program) {
-  return "/program"
- }
+  if (state.status === "new") {
+   if (!hasSelectedPlan(state)) {
+    return "/program"
+   }
 
- if (!state.duration) {
-  return state.program === "Personal Training" ? "/personal-training" : "/plan"
- }
+   if (!state.duration || !hasCompletedBatchSelection(state)) {
+    return "/plan"
+   }
+  }
 
- return null
+  if (!state.program) {
+   return "/program"
+  }
+
+  if (!state.duration) {
+   return isPersonalTrainingLabel(state.program) ? "/personal-training" : "/program"
+  }
+
+  return null
 }
 
 const getPaymentRedirect = (state: UserState) => {
@@ -149,14 +167,10 @@ const getPaymentRedirect = (state: UserState) => {
    return redirect
   }
 
-  if (!state.batchTime) {
-   return "/time-selection"
+  if (!hasCompletedBatchSelection(state)) {
+   return "/program"
   }
 
-  return "/review"
- }
-
- if (state.purpose === "trial") {
   return "/review"
  }
 
@@ -166,36 +180,14 @@ const getPaymentRedirect = (state: UserState) => {
   return redirect
  }
 
- if (!state.batchTime) {
-  return "/time-selection"
- }
-
- return null
-}
-
-const getManualPaymentRedirect = (
- state: UserState,
- method: UserState["paymentMethod"],
- status: UserState["paymentStatus"]
-) => {
- const redirect = getPaymentRedirect(state)
-
- if (redirect) {
-  return redirect
- }
-
- if (!state.paymentReference || state.paymentMethod !== method || state.paymentStatus !== status) {
-  return "/payment"
+ if (!hasCompletedBatchSelection(state)) {
+  return "/program"
  }
 
  return null
 }
 
 const getEnquiryRedirect = (state: UserState) => {
- if (!hasValidPhone(state)) {
-  return "/phone"
- }
-
  if (state.purpose !== "enquiry") {
   return "/return-user"
  }
@@ -206,8 +198,8 @@ const getEnquiryRedirect = (state: UserState) => {
   return redirect
  }
 
- if (!state.batchTime) {
-  return "/time-selection"
+ if (!hasCompletedBatchSelection(state)) {
+  return "/program"
  }
 
  return "/review"
@@ -218,101 +210,90 @@ const getRouteRedirect = (route: KioskRoute, state: UserState) => {
   case "/":
   case "/goal":
   case "/specific-goal":
-  case "/phone":
-  case "/admin":
-   return null
   case "/return-user":
-   return hasValidPhone(state) ? null : "/phone"
+   return null
   case "/user-details":
-   if (!hasValidPhone(state)) return "/phone"
-   if (state.purpose !== "trial" && state.purpose !== "enroll" && state.purpose !== "enquiry") return "/return-user"
+   if (!state.phone) return "/phone"
    return null
   case "/injury":
-   if (!hasValidPhone(state)) return "/phone"
-   if (state.purpose !== "trial" && state.purpose !== "enroll" && state.purpose !== "enquiry") return "/return-user"
-   if (!hasValidUserDetails(state)) return "/user-details"
-   return null
   case "/injury-details":
-   if (!hasValidPhone(state)) return "/phone"
-   if (state.purpose !== "trial" && state.purpose !== "enroll" && state.purpose !== "enquiry") return "/return-user"
-   if (!hasValidUserDetails(state)) return "/user-details"
-   if (!state.injuryAnswered) return "/injury"
-   if (!state.injury) return "/exercise-type"
-   return null
-  case "/exercise-type":
-   return getExerciseTypeRedirect(state)
   case "/experience":
-   return getExperienceRedirect(state)
+  case "/exercise-type":
+   return hasCompletedIntake(state) ? "/program" : "/user-details"
+  case "/profile-photo":
+   return getProgramRedirect(state)
   case "/enquiry":
    return getEnquiryRedirect(state)
   case "/program":
    return getProgramRedirect(state)
-  case "/plan": {
-   const redirect = getProgramRedirect(state)
-
-   if (redirect) return redirect
-   if (!state.program) return "/program"
-   if (state.purpose === "trial") return "/batch-type"
-   if (state.program === "Personal Training") return "/personal-training"
+  case "/plan":
+   if (state.status === "new" && !hasSelectedPlan(state)) {
+    return "/program"
+   }
    return null
-  }
   case "/personal-training": {
    const redirect = getProgramRedirect(state)
 
    if (redirect) return redirect
-   if (state.program !== "Personal Training") return "/program"
+   if (!isPersonalTrainingLabel(state.program)) return "/program"
    return null
   }
   case "/batch-type":
-   return getBatchTypeRedirect(state)
-  case "/time-selection": {
-   const redirect = getBatchTypeRedirect(state)
+   return "/program"
+  case "/time-selection":
+   return "/program"
+  case "/review":
+   {
+    const redirect = getBatchTypeRedirect(state)
 
-   if (redirect) return redirect
-   if (!state.batchType) return "/batch-type"
+    if (redirect) return redirect
+    if (!hasCompletedBatchSelection(state)) return "/program"
+    return null
+   }
+  case "/consent": {
+   if (state.purpose === "enquiry") {
+    return "/review"
+   }
+
+   const redirect = getPaymentRedirect(state)
+
+   if (redirect) {
+    return redirect
+   }
+
+   if (state.paymentStatus !== "paid" || !state.paymentMethod) {
+    return "/payment"
+   }
+
    return null
   }
-  case "/review":
-   if (state.status === "member" && state.program && state.duration && state.batchType && state.batchTime) {
-    return null
-   }
-
-   {
-    const redirect = getBatchTypeRedirect(state)
-
-    if (redirect) return redirect
-    if (!state.batchTime) return "/time-selection"
-    return null
-   }
-  case "/payment":
-   return getPaymentRedirect(state)
-  case "/payment/upi":
-   return getManualPaymentRedirect(state, "upi", "upi_pending")
-  case "/payment/cash":
-   return getManualPaymentRedirect(state, "cash", "cash_pending")
   case "/success":
-   if (state.purpose === "enquiry") {
-    const redirect = getBatchTypeRedirect(state)
+  if (!state.phone && !state.purpose && state.status === "new") {
+   return null
+  }
+
+  if (state.purpose === "enquiry") {
+   const redirect = getBatchTypeRedirect(state)
 
     if (redirect) return redirect
-    if (!state.batchTime) return "/time-selection"
-    return validateName(state.name).isValid && hasValidPhone(state) ? null : "/user-details"
-   }
+   if (!hasCompletedBatchSelection(state)) return "/program"
+   return hasValidUserDetails(state) ? null : "/user-details"
+  }
 
-   if (state.purpose === "trial") {
-    const redirect = getBatchTypeRedirect(state)
-
-    if (redirect) return redirect
-    if (!state.batchTime) return "/time-selection"
-    return state.paymentStatus === "free" ? null : "/review"
-   }
-
-   {
-    const redirect = getPaymentRedirect(state)
+  {
+   const redirect = getPaymentRedirect(state)
 
    if (redirect) return redirect
-   return state.paymentStatus === "paid" && Boolean(state.paymentMethod) ? null : "/payment"
+   if (state.paymentStatus !== "paid" || !state.paymentMethod) {
+    return "/payment"
    }
+
+   if (!state.consentAgreed) {
+    return "/consent"
+   }
+
+   return null
+  }
  }
 
  return null
@@ -352,51 +333,15 @@ function useViewportHeightSync() {
  }, [])
 }
 
-function useKioskSessionManager() {
- const pathname = usePathname()
- const router = useRouter()
- const reset = useUserStore((state) => state.reset)
-
- useEffect(() => {
-  if (pathname === "/admin") {
-   return
-  }
-
-  const timeoutMs = 60_000
-  let timeoutId = 0
-
-  const restartTimer = () => {
-   window.clearTimeout(timeoutId)
-   timeoutId = window.setTimeout(() => {
-    reset()
-    router.replace("/")
-   }, timeoutMs)
-  }
-
-  restartTimer()
-
-  const events: Array<keyof WindowEventMap> = ["pointerdown", "touchstart", "keydown"]
-
-  events.forEach((eventName) => {
-   window.addEventListener(eventName, restartTimer, { passive: true })
-  })
-
-  return () => {
-   window.clearTimeout(timeoutId)
-   events.forEach((eventName) => {
-    window.removeEventListener(eventName, restartTimer)
-   })
-  }
- }, [pathname, reset, router])
-}
-
 export default function RouteScreen({ route }: { route: KioskRoute }) {
+ useAuthSync()
  useViewportHeightSync()
- useKioskSessionManager()
 
  const pathname = usePathname()
  const router = useRouter()
+ const userHydrated = useUserStore((state) => state.hydrated)
  const state = useUserStore()
+
  const redirect = getRouteRedirect(route, state)
  const Screen = routeComponents[route]
 
@@ -405,6 +350,10 @@ export default function RouteScreen({ route }: { route: KioskRoute }) {
    router.replace(redirect)
   }
  }, [pathname, redirect, router])
+
+ if (!userHydrated) {
+  return <RouteFallback />
+ }
 
  if (!Screen) {
   return <RouteFallback />

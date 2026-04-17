@@ -37,6 +37,7 @@ body {
   padding: 0;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  overscroll-behavior: none;
 }
 
 body {
@@ -49,6 +50,7 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow: hidden;
+  touch-action: manipulation;
 }
 
 h1 {
@@ -218,6 +220,17 @@ p {
 
 .touch-feedback:active {
   transform: scale(0.96);
+}
+
+.kiosk-focus-ring {
+  outline: none;
+}
+
+.kiosk-focus-ring:focus-visible {
+  box-shadow:
+    0 0 0 2px rgba(7, 17, 23, 0.92),
+    0 0 0 4px rgba(243, 224, 182, 0.62),
+    0 16px 34px rgba(0, 0, 0, 0.28);
 }
 
 .glass-overlay {

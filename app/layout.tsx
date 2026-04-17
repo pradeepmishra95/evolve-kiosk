@@ -1,6 +1,8 @@
 import { Cormorant_Garamond, Manrope } from "next/font/google"
 import type { Metadata, Viewport } from "next"
 import type { ReactNode } from "react"
+import ToastHost from "@/components/feedback/ToastHost"
+import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration"
 import "./globals.css"
 
 const manrope = Manrope({
@@ -18,7 +20,7 @@ const cormorantGaramond = Cormorant_Garamond({
 export const metadata: Metadata = {
  title: "Evolve Performance Kiosk",
  applicationName: "Evolve Kiosk",
- description: "Standalone kiosk flow for trials, memberships, and enquiries.",
+ description: "Standalone kiosk flow for paid trial bookings, memberships, and enquiries.",
  manifest: "/manifest.webmanifest",
  icons: {
   icon: [
@@ -50,6 +52,8 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
+ width: "device-width",
+ initialScale: 1,
  themeColor: "#071117"
 }
 
@@ -63,7 +67,11 @@ export default function RootLayout({
    lang="en"
    className={`${manrope.variable} ${cormorantGaramond.variable}`}
   >
-   <body>{children}</body>
+   <body>
+    {children}
+    <ToastHost />
+    <ServiceWorkerRegistration />
+   </body>
   </html>
  )
 }

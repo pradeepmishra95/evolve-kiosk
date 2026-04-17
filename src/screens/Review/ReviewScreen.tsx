@@ -1,47 +1,745 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "@/navigation/useAppNavigation"
 import Container from "../../layout/Container"
 import PrimaryButton from "../../components/buttons/PrimaryButton"
+import ChoiceCard from "../../components/cards/ChoiceCard"
+import DialogDateField, { type DialogDateOption } from "../../components/datetime/DialogDateField"
+import DialogTimeField, { type DialogTimeOption } from "../../components/datetime/DialogTimeField"
 import { useUserStore } from "../../store/userStore"
+import { useAuthStore } from "../../store/authStore"
 import { colors, radius, spacing, typography } from "../../styles/GlobalStyles"
 import { useDevice } from "../../hooks/useDevice"
+import { formatDateOfBirth } from "../../utils/dateOfBirth"
+import { formatPhoneNumber } from "../../utils/validation"
+import { saveEnquirySubmission } from "../../services/enquirySubmission"
+import { usePlanCatalog } from "../../hooks/usePlanCatalog"
+import { isPersonalTrainingLabel, matchesLabel } from "../../utils/labelMatch"
+import {
+ getSchedulePeriodOptions,
+ getTimingsForPeriod,
+ getUpcomingScheduleDatesForDays
+} from "../../utils/planSchedule"
+import { formatScheduleDate, getUpcomingScheduleDates } from "../../utils/schedule"
+import { buildPriceBreakdown, resolveAddonPlans, resolvePlanPricing } from "../../utils/planPricing"
+import { TRIAL_FEE, TRIAL_FEE_NOTE } from "../../utils/trialPricing"
+import { getProfilePhotoUploadStatusMessage, uploadProfilePhoto } from "../../services/profilePhoto"
+import type { ProfilePhotoSource, ProgramPlan } from "../../types/domain"
+import { startOfDay, toDateInputValue } from "../../utils/dateTimeSelector"
+
+const formatScheduleMoment = (date: string, time: string) => {
+ const parts: string[] = []
+
+ if (date) {
+  parts.push(formatScheduleDate(date))
+ }
+
+ if (time) {
+  parts.push(time)
+ }
+
+ return parts.length > 0 ? parts.join(" · ") : "-"
+}
+
+const cameraConstraintAttempts: MediaStreamConstraints[] = [
+ {
+  video: {
+   facingMode: {
+    ideal: "user"
+   },
+   width: {
+    ideal: 1280
+   },
+   height: {
+    ideal: 720
+   }
+  },
+  audio: false
+ },
+ {
+  video: {
+   facingMode: {
+    ideal: "environment"
+   },
+   width: {
+    ideal: 1280
+   },
+   height: {
+    ideal: 720
+   }
+  },
+  audio: false
+ },
+ {
+  video: {
+   width: {
+    ideal: 1280
+   },
+   height: {
+    ideal: 720
+   }
+  },
+  audio: false
+ },
+ {
+  video: true,
+  audio: false
+ }
+]
+
+const PROFILE_PHOTO_FILE_NAME = "profile-photo.jpg"
+
+const canvasToBlob = (canvas: HTMLCanvasElement, quality = 0.9) =>
+ new Promise<Blob>((resolve, reject) => {
+  canvas.toBlob(
+   (blob) => {
+    if (!blob) {
+     reject(new Error("Could not capture the photo."))
+     return
+    }
+
+    resolve(blob)
+   },
+   "image/jpeg",
+   quality
+  )
+ })
+
+const captureFrameFromVideo = async (videoElement: HTMLVideoElement) => {
+ const sourceWidth = videoElement.videoWidth
+ const sourceHeight = videoElement.videoHeight
+
+ if (!sourceWidth || !sourceHeight) {
+  throw new Error("Camera preview is not ready yet.")
+ }
+
+ const maxSize = 1280
+ const scale = Math.min(maxSize / sourceWidth, maxSize / sourceHeight, 1)
+ const width = Math.max(1, Math.round(sourceWidth * scale))
+ const height = Math.max(1, Math.round(sourceHeight * scale))
+
+ const canvas = document.createElement("canvas")
+ canvas.width = width
+ canvas.height = height
+
+ const context = canvas.getContext("2d")
+
+ if (!context) {
+  throw new Error("Could not capture the photo.")
+ }
+
+ context.drawImage(videoElement, 0, 0, width, height)
+
+ return canvasToBlob(canvas, 0.9)
+}
+
+const hasSecureCameraContext = () => {
+ if (typeof window === "undefined") {
+  return true
+ }
+
+ if (window.isSecureContext) {
+  return true
+ }
+
+ const host = window.location.hostname
+
+ return host === "localhost" || host === "127.0.0.1" || host === "[::1]"
+}
+
+const getCameraErrorMessage = (
+ error: unknown,
+ options?: {
+  insecureContext?: boolean
+ }
+) => {
+ const name =
+  typeof error === "object" && error && "name" in error ? String(error.name) : ""
+
+ if (name === "NotAllowedError") {
+  if (options?.insecureContext) {
+   return "Camera access is blocked because this page is not running on HTTPS. Open the kiosk on HTTPS and try again."
+  }
+
+  return "Camera permission was denied. Allow camera access and try again."
+ }
+
+ if (name === "NotFoundError") {
+  return "No camera was found on this device."
+ }
+
+ if (name === "NotReadableError") {
+  return "The camera is already being used by another app."
+ }
+
+ if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+  return "This camera mode is not supported on this device. Please retry."
+ }
+
+ if (name === "SecurityError") {
+  return "Camera access is blocked in this browser context. Open the kiosk on HTTPS and retry."
+ }
+
+ return "Could not open the camera on this browser. Try gallery instead."
+}
 
 export default function ReviewScreen() {
 
  const navigate = useNavigate()
  const data = useUserStore()
- const { isMobile } = useDevice()
- const isTrialFlow = data.purpose === "trial"
+ const staffUser = useAuthStore((state) => state.user)
+ const { isMobile, isCompactHeight } = useDevice()
  const isEnquiryFlow = data.purpose === "enquiry"
+ const isBookingFlow =
+  data.purpose === "trial" || data.purpose === "enroll" || data.purpose === "renew"
+ const isTrialBooking = data.purpose === "trial"
+ const isPersonalTraining = isPersonalTrainingLabel(data.program) || isPersonalTrainingLabel(data.exerciseType)
+ const bookingCardTitle =
+  data.purpose === "trial"
+   ? "Trial Booking"
+   : data.purpose === "enroll"
+    ? "Joining Schedule"
+    : data.purpose === "renew"
+     ? "Renewal Schedule"
+   : "Booking Schedule"
+ const { adultPlans, kidsPlans } = usePlanCatalog()
+ const [savingEnquiry, setSavingEnquiry] = useState(false)
+ const [bookingError, setBookingError] = useState("")
+ const [saveError, setSaveError] = useState("")
+ const [photoError, setPhotoError] = useState("")
+ const [photoStatusMessage, setPhotoStatusMessage] = useState("")
+ const [cameraOpen, setCameraOpen] = useState(false)
+ const [cameraReady, setCameraReady] = useState(false)
+ const [cameraLoading, setCameraLoading] = useState(false)
+ const [photoUploading, setPhotoUploading] = useState(false)
+ const [pendingPhotoBlob, setPendingPhotoBlob] = useState<Blob | null>(null)
+ const [pendingPhotoSource, setPendingPhotoSource] = useState<ProfilePhotoSource>("camera")
+ const [pendingPhotoFileName, setPendingPhotoFileName] = useState(PROFILE_PHOTO_FILE_NAME)
+ const [draftPreviewUrl, setDraftPreviewUrl] = useState("")
+ const [expandedEditor, setExpandedEditor] = useState<"program" | "duration" | "batchType" | "batchTime" | null>(null)
+ const [partialEnabled, setPartialEnabled] = useState(false)
+ const [partialInput, setPartialInput] = useState("")
+ const [partialError, setPartialError] = useState("")
+ const galleryInputRef = useRef<HTMLInputElement | null>(null)
+ const videoRef = useRef<HTMLVideoElement | null>(null)
+ const streamRef = useRef<MediaStream | null>(null)
+ const previewUrlRef = useRef<string | null>(null)
+ const trialCreditApplied = data.cameFromTrial && data.purpose === "enroll"
+const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(0, data.price - TRIAL_FEE) : data.price
+ const followUpMinDate = useMemo(() => toDateInputValue(startOfDay()), [])
+
+ const plans = data.age !== null && data.age <= 12 ? kidsPlans : adultPlans
+ const selectedPlan = plans.find(
+  (plan) =>
+   matchesLabel(plan.name, data.program) ||
+   matchesLabel(plan.name, data.exerciseType) ||
+   (plan.program ? matchesLabel(plan.program, data.exerciseType) : false)
+ )
+ const selectedMainPricing = isTrialBooking
+  ? { duration: "1 Day" as const, price: TRIAL_FEE }
+  : resolvePlanPricing(selectedPlan, data.duration)
+ const selectedAddonPlans = isBookingFlow
+  ? resolveAddonPlans(
+     plans,
+     selectedPlan,
+     data.exerciseType,
+     selectedMainPricing?.duration || data.duration
+    ).filter((plan) => data.selectedAddOnIds.includes(plan.id))
+  : []
+ const addonTotal = selectedAddonPlans.reduce((total, addon) => total + addon.pricing.price, 0)
+ const mainPlanPrice =
+  data.mainPlanPrice ||
+  selectedMainPricing?.price ||
+  (isTrialBooking ? TRIAL_FEE : Math.max((data.price || 0) - addonTotal, 0))
+ const resolvedTimings = useMemo(() => selectedPlan?.timings ?? [], [selectedPlan?.timings])
+ const scheduleDays = useMemo(() => selectedPlan?.scheduleDays ?? [], [selectedPlan?.scheduleDays])
+ const schedulePeriodOptions = getSchedulePeriodOptions(resolvedTimings)
+ const resolvedBookingBatchType = data.batchType || schedulePeriodOptions[0]?.value || "custom"
+ const bookingTimings = useMemo(
+  () => getTimingsForPeriod(resolvedTimings, resolvedBookingBatchType),
+  [resolvedBookingBatchType, resolvedTimings]
+ )
+ const bookingTimeOptions = useMemo(
+  () => (bookingTimings.length > 0 ? bookingTimings : data.batchTime ? [data.batchTime] : []),
+  [bookingTimings, data.batchTime]
+ )
+ const bookingTimeSlotOptions = useMemo<DialogTimeOption[]>(
+  () =>
+   bookingTimeOptions.map((timing, index) => ({
+    value: timing,
+    label: timing,
+    description: index === 0 ? "Recommended" : "Available"
+   })),
+  [bookingTimeOptions]
+ )
+ const bookingDateOptions = useMemo(() => {
+  if (!isBookingFlow) {
+   return []
+  }
+
+  const count = data.purpose === "trial" ? 10 : 14
+
+  if (scheduleDays.length > 0) {
+   return getUpcomingScheduleDatesForDays(scheduleDays, count)
+  }
+
+  return getUpcomingScheduleDates(count)
+ }, [data.purpose, isBookingFlow, scheduleDays])
+ const trialDateOptions = useMemo<DialogDateOption[]>(
+  () =>
+   bookingDateOptions.map((option, index) => ({
+    ...option,
+    disabled: bookingTimeSlotOptions.length === 0,
+    description:
+     bookingTimeSlotOptions.length > 0
+      ? index === 0
+       ? `${bookingTimeSlotOptions.length} slots · soonest`
+       : `${bookingTimeSlotOptions.length} slots`
+      : "No slots"
+   })),
+  [bookingDateOptions, bookingTimeSlotOptions.length]
+ )
+ const heroMomentLabel = isEnquiryFlow
+  ? "Follow-up"
+  : data.purpose === "trial"
+   ? "Trial Booking"
+   : data.purpose === "enroll"
+    ? "Joining"
+    : data.purpose === "renew"
+     ? "Renewal"
+     : "Schedule"
+ const heroMomentValue = isEnquiryFlow
+  ? formatScheduleMoment(data.followUpDate, data.followUpTime)
+  : formatScheduleMoment(data.batchDate, data.batchTime)
+ const shouldShowProfilePhotoOnReview = data.purpose === "enroll" && data.status !== "new"
+ const hasSavedProfilePhoto = Boolean(data.profilePhotoUrl || data.profilePhotoStoragePath)
+ const displayPhotoUrl = draftPreviewUrl || data.profilePhotoUrl
+
+ const releaseDraftPreview = useCallback(() => {
+  if (previewUrlRef.current) {
+   URL.revokeObjectURL(previewUrlRef.current)
+   previewUrlRef.current = null
+  }
+ }, [])
+
+ const stopCamera = useCallback(() => {
+  streamRef.current?.getTracks().forEach((track) => track.stop())
+  streamRef.current = null
+
+  if (videoRef.current) {
+   videoRef.current.srcObject = null
+  }
+
+  setCameraOpen(false)
+  setCameraReady(false)
+ }, [])
+
+ useEffect(() => {
+  if (!shouldShowProfilePhotoOnReview) {
+   setPhotoError("")
+   setPhotoStatusMessage("")
+   stopCamera()
+   return
+  }
+
+  if (hasSavedProfilePhoto && !draftPreviewUrl) {
+   setPhotoStatusMessage("Profile photo already available for this member.")
+  } else if (!hasSavedProfilePhoto && !draftPreviewUrl) {
+   setPhotoStatusMessage("Profile photo is optional here. Add one now or continue to payment.")
+  }
+ }, [draftPreviewUrl, hasSavedProfilePhoto, shouldShowProfilePhotoOnReview, stopCamera])
+
+ useEffect(() => {
+  if (!cameraOpen || !videoRef.current || !streamRef.current) {
+   return
+  }
+
+ const videoElement = videoRef.current
+ videoElement.srcObject = streamRef.current
+ const markReady = () => setCameraReady(true)
+
+ videoElement.addEventListener("loadedmetadata", markReady)
+ videoElement.addEventListener("loadeddata", markReady)
+ videoElement.addEventListener("canplay", markReady)
+
+ if (videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+  markReady()
+ }
+
+ void videoElement.play().then(() => {
+  if (videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+   markReady()
+  }
+ }).catch(() => {
+  setPhotoError("Could not start the live camera preview. Try gallery instead.")
+  setPhotoStatusMessage("Camera preview failed. Try camera again or choose gallery.")
+  stopCamera()
+ })
+
+ return () => {
+  videoElement.removeEventListener("loadedmetadata", markReady)
+  videoElement.removeEventListener("loadeddata", markReady)
+  videoElement.removeEventListener("canplay", markReady)
+ }
+ }, [cameraOpen, stopCamera])
+
+ useEffect(() => {
+  return () => {
+   stopCamera()
+   releaseDraftPreview()
+  }
+ }, [releaseDraftPreview, stopCamera])
 
  const goToDetails = () => navigate("/user-details")
- const goToTraining = () => navigate("/exercise-type")
+ const goToTraining = () => navigate("/user-details")
  const goToProgram = () => navigate("/program")
- const goToBatch = () => navigate("/batch-type")
+ const goToBatch = () => navigate("/plan")
+
+ const handleChangeProgram = (plan: ProgramPlan) => {
+  const firstPricing = plan.pricing?.find((p) => p.duration !== "1 Day") ?? plan.pricing?.[0]
+  const planScheduleOptions = getSchedulePeriodOptions(plan.timings ?? [])
+  const firstBatchType = planScheduleOptions[0]?.value || "custom"
+  const firstBatchTime = getTimingsForPeriod(plan.timings ?? [], firstBatchType)[0] || ""
+  data.setData({
+   program: plan.name,
+   selectedPlanId: plan.id,
+   days: plan.scheduleDays?.join(", ") || plan.days || "",
+   duration: firstPricing?.duration || "",
+   price: firstPricing?.price || 0,
+   mainPlanPrice: firstPricing?.price || 0,
+   batchType: firstBatchType,
+   batchTime: firstBatchTime,
+   selectedAddOnIds: [],
+   batchDate: ""
+  })
+  setExpandedEditor(null)
+ }
+
+ const handleChangeDuration = (index: number) => {
+  const pricing = selectedPlan?.pricing?.[index]
+  if (!pricing) return
+  data.setData({
+   duration: pricing.duration,
+   price: pricing.price,
+   mainPlanPrice: pricing.price,
+   selectedAddOnIds: [],
+   batchDate: ""
+  })
+  setExpandedEditor(null)
+ }
+
+ const handleChangeBatchType = (value: string) => {
+  const nextTimings = getTimingsForPeriod(resolvedTimings, value)
+  data.setData({
+   batchType: value,
+   batchTime: nextTimings[0] || ""
+  })
+  setExpandedEditor(null)
+ }
+
+ const handleChangeBatchTime = (value: string) => {
+  data.setData({ batchTime: value })
+  setExpandedEditor(null)
+ }
+
+ const toggleEditor = (field: "program" | "duration" | "batchType" | "batchTime") => {
+  setExpandedEditor((prev) => (prev === field ? null : field))
+ }
+
+ const formatYesNo = (value: string) => value === "yes" ? "Yes" : value === "no" ? "No" : "-"
+ const formatActivities = (values: string[]) => values.length ? values.join(", ") : "-"
+ const formatPurpose = (purpose: string) => {
+  if (purpose === "trial") return "Trial"
+  if (purpose === "enroll") return "Enroll"
+  if (purpose === "renew") return "Renew"
+  if (purpose === "enquiry") return "Enquiry"
+
+  return "-"
+ }
+
+ const renderTile = (label: string, value: string, accent = false) => (
+  <div
+   style={{
+    ...styles.detailTile,
+    ...(accent ? styles.detailTileAccent : {})
+   }}
+  >
+   <p style={styles.detailLabel}>{label}</p>
+   <p style={styles.detailValue}>{value || "-"}</p>
+  </div>
+ )
+
+ const uploadPhoto = async (blob: Blob, source: ProfilePhotoSource, fileName: string) => {
+  if (!data.name || !data.phone) {
+   setPhotoError("Member details are missing. Please go back and verify profile details.")
+   return
+  }
+
+ try {
+   setPhotoUploading(true)
+   setPhotoError("")
+   setPhotoStatusMessage("Preparing profile photo...")
+
+   const result = await uploadProfilePhoto({
+    name: data.name.trim(),
+    phone: data.phone,
+    countryCode: data.countryCode,
+    source,
+    blob,
+    fileName,
+    contentType: blob.type || "image/jpeg",
+    onProgress: (progress) => {
+     setPhotoStatusMessage(getProfilePhotoUploadStatusMessage(progress))
+    }
+   })
+
+   data.setData({
+    profilePhotoUrl: result.downloadUrl,
+    profilePhotoStoragePath: result.storagePath,
+    profilePhotoHash: result.hash,
+    profilePhotoUploadedAt: result.uploadedAt,
+    profilePhotoSource: result.source
+   })
+
+   releaseDraftPreview()
+   setDraftPreviewUrl("")
+   setPendingPhotoBlob(null)
+   setPendingPhotoSource(source)
+   setPendingPhotoFileName(PROFILE_PHOTO_FILE_NAME)
+   setPhotoStatusMessage("Profile photo saved. You can continue to payment.")
+  } catch (error) {
+   setPhotoError(error instanceof Error ? error.message : "Could not save the profile photo.")
+   setPhotoStatusMessage("Upload failed. Please retry.")
+  } finally {
+   setPhotoUploading(false)
+  }
+ }
+
+ const handleOpenCamera = async () => {
+  if (!hasSecureCameraContext()) {
+   setPhotoError("Camera needs a secure context. Open this kiosk over HTTPS and retry.")
+   setPhotoStatusMessage("Camera unavailable on non-HTTPS page. Use gallery or switch to HTTPS.")
+   return
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+   setPhotoError("This browser does not support camera access. Use gallery instead.")
+   setPhotoStatusMessage("Camera is not supported on this browser. Use gallery upload.")
+   return
+  }
+
+  try {
+   setCameraLoading(true)
+   setPhotoError("")
+   setPhotoStatusMessage("Opening camera...")
+   stopCamera()
+   setCameraReady(false)
+
+   let stream: MediaStream | null = null
+   let lastError: unknown = null
+
+   for (const constraints of cameraConstraintAttempts) {
+    try {
+     stream = await navigator.mediaDevices.getUserMedia(constraints)
+     break
+    } catch (attemptError) {
+     lastError = attemptError
+    }
+   }
+
+   if (!stream) {
+    throw lastError
+   }
+
+   const hasVideoTrack = stream.getVideoTracks().length > 0
+
+   if (!hasVideoTrack) {
+    stream.getTracks().forEach((track) => track.stop())
+    throw new Error("Could not find a usable camera stream.")
+   }
+
+   streamRef.current = stream
+   setCameraOpen(true)
+   setPhotoStatusMessage("Camera ready. Align the face and capture.")
+  } catch (error) {
+   const insecureContext = !hasSecureCameraContext()
+   setPhotoError(getCameraErrorMessage(error, { insecureContext }))
+   setPhotoStatusMessage("Could not open camera. Retry or use gallery.")
+  } finally {
+   setCameraLoading(false)
+  }
+ }
+
+ const handleGalleryFile = async (file?: File | null) => {
+  if (!file) {
+   return
+  }
+
+  if (!file.type.startsWith("image/")) {
+   setPhotoError("Please choose an image file.")
+   return
+  }
+
+  releaseDraftPreview()
+  const objectUrl = URL.createObjectURL(file)
+  previewUrlRef.current = objectUrl
+  setDraftPreviewUrl(objectUrl)
+  setPendingPhotoBlob(file)
+  setPendingPhotoSource("gallery")
+  setPendingPhotoFileName(file.name || PROFILE_PHOTO_FILE_NAME)
+  void uploadPhoto(file, "gallery", file.name || PROFILE_PHOTO_FILE_NAME)
+ }
+
+ const handleCapturePhoto = async () => {
+  if (!videoRef.current) {
+   setPhotoError("Camera preview is not ready yet.")
+   return
+  }
+
+  try {
+   setCameraLoading(true)
+   setPhotoError("")
+   const blob = await captureFrameFromVideo(videoRef.current)
+   stopCamera()
+
+   releaseDraftPreview()
+   const objectUrl = URL.createObjectURL(blob)
+   previewUrlRef.current = objectUrl
+   setDraftPreviewUrl(objectUrl)
+   setPendingPhotoBlob(blob)
+   setPendingPhotoSource("camera")
+   setPendingPhotoFileName(PROFILE_PHOTO_FILE_NAME)
+   void uploadPhoto(blob, "camera", PROFILE_PHOTO_FILE_NAME)
+  } catch (error) {
+   setPhotoError(error instanceof Error ? error.message : "Could not capture the photo.")
+   setPhotoStatusMessage("Capture failed. Please retry.")
+  } finally {
+   setCameraLoading(false)
+  }
+ }
+
+ const handleRetryPhotoUpload = () => {
+  if (!pendingPhotoBlob) {
+   setPhotoError("Capture or select a photo first.")
+   return
+  }
+
+  void uploadPhoto(pendingPhotoBlob, pendingPhotoSource, pendingPhotoFileName)
+ }
 
  const handleContinue = () => {
   if (isEnquiryFlow) {
-   navigate("/success")
+   void handleFinishEnquiry()
    return
   }
 
-  if (isTrialFlow) {
+  if (shouldShowProfilePhotoOnReview && photoUploading) {
+   setPhotoError("Profile photo is still uploading. Please wait for it to finish.")
+   return
+  }
+
+  if (isBookingFlow) {
+   if (isPersonalTraining && !data.batchTime) {
+    setBookingError("Please select a booking time.")
+    return
+   }
+
+   if (data.purpose !== "renew" && !data.batchDate) {
+    setBookingError("Please select a booking date.")
+    return
+   }
+  }
+
+  if (partialEnabled) {
+   const parsed = parseInt(partialInput, 10)
+
+   if (!partialInput || isNaN(parsed) || parsed <= 0) {
+    setPartialError("Enter a valid partial amount.")
+    return
+   }
+
+   if (parsed >= bookingPrice) {
+    setPartialError("Partial amount must be less than the total.")
+    return
+   }
+
    data.setData({
-    duration: "Free Trial",
-    price: 0,
+    price: bookingPrice,
+    isPartialPayment: true,
+    paidAmount: parsed,
+    dueAmount: bookingPrice - parsed,
+    paymentCollectionStep: 1,
+    paymentMethod1: "",
+    paymentMethod2: "",
+    paymentSurchargeAmount: 0,
+    paymentTotalAmount: bookingPrice,
     paymentReference: "",
     paymentMethod: "",
-    paymentStatus: "free"
+    paymentStatus: ""
    })
-   navigate("/success")
-   return
+  } else {
+   data.setData({
+    price: bookingPrice,
+    isPartialPayment: false,
+    paidAmount: 0,
+    dueAmount: 0,
+    paymentCollectionStep: 1,
+    paymentMethod1: "",
+    paymentMethod2: "",
+    paymentSurchargeAmount: 0,
+    paymentTotalAmount: bookingPrice,
+    paymentReference: "",
+    paymentMethod: "",
+    paymentStatus: ""
+   })
   }
 
-  data.setData({
-   paymentReference: "",
-   paymentMethod: "",
-   paymentStatus: ""
-  })
+  data.clearConsentSigning()
   navigate("/payment")
+ }
+
+ const handleFinishEnquiry = async () => {
+  try {
+   setSavingEnquiry(true)
+   setSaveError("")
+
+   await saveEnquirySubmission({
+    name: data.name,
+    phone: data.phone,
+    countryCode: data.countryCode,
+    dateOfBirth: data.dateOfBirth,
+    lookingFor: data.lookingFor,
+    referenceSource: data.referenceSource,
+    age: data.age,
+    gender: data.gender,
+    primaryGoal: data.primaryGoal,
+    enquiryMessage: data.enquiryMessage,
+    experience: data.experience,
+    priorExerciseExperience: data.priorExerciseExperience,
+    priorExerciseActivity: data.priorExerciseActivity,
+    priorExerciseDuration: data.priorExerciseDuration,
+    lastExerciseTime: data.lastExerciseTime,
+    injury: data.injury,
+    injuryDetails: data.injuryDetails,
+    exerciseType: data.exerciseType,
+    program: data.program,
+    days: data.days,
+    duration: data.duration,
+    batchType: data.batchType,
+    batchTime: data.batchTime,
+    batchDate: data.batchDate,
+    followUpDate: data.followUpDate,
+    followUpTime: data.followUpTime,
+    price: data.price,
+    staffUser
+   })
+
+   navigate("/enquiry-thank-you")
+  } catch (error) {
+   console.error("Failed to save enquiry from review:", error)
+   setSaveError("Unable to save enquiry right now. Please try again.")
+  } finally {
+   setSavingEnquiry(false)
+  }
  }
 
  const renderEditButton = (label: string, onClick: () => void) => (
@@ -66,145 +764,1103 @@ export default function ReviewScreen() {
  )
 
  return (
+  <Container scrollable>
+   <div style={styles.wrapper}>
+    <div style={styles.heroCard}>
+     <div style={styles.heroHeader}>
+      <div>
+       <p style={styles.kicker}>
+        {isEnquiryFlow ? "Enquiry Review" : isBookingFlow ? "Booking Review" : "Review"}
+       </p>
+       <h2 style={styles.heroTitle}>Almost there</h2>
+      </div>
 
-  <Container>
+      <div style={styles.statusPill}>
+       {formatPurpose(data.purpose)}
+      </div>
+     </div>
 
-   <div style={{ maxWidth: "600px", margin: "auto" }}>
+     <div style={styles.heroGrid(isMobile)}>
+     {renderTile("Program", data.program || "-")}
+     {renderTile("Plan", data.duration || "-")}
+     {renderTile(heroMomentLabel, heroMomentValue, true)}
+     {renderTile("Price", bookingPrice ? `₹${bookingPrice}` : "-")}
+    </div>
 
-    <h2
-     style={{
-      textAlign: "center",
-      fontSize: typography.subtitle.fontSize,
-      marginBottom: spacing.lg
-     }}
-    >
-     Review Plan
-    </h2>
+     {isTrialBooking && (
+      <div style={styles.noticeCard}>
+       <p style={styles.noticeTitle}>Trial booking fee: ₹{TRIAL_FEE}</p>
+       <p style={styles.noticeText}>{TRIAL_FEE_NOTE}</p>
+      </div>
+     )}
+    </div>
 
-    <div
-     style={{
-      display: "flex",
-      flexDirection: "column",
-      gap: spacing.md
-     }}
-    >
-
-     <div style={styles.sectionCard(isMobile)}>
-      <div style={styles.sectionHeader}>
+    <div style={styles.sectionStack}>
+     <div style={styles.sectionCard(isMobile, isCompactHeight)}>
+     <div style={styles.sectionHeader}>
+      <div>
+       <p style={styles.sectionEyebrow}>Profile</p>
        <h3 style={styles.sectionTitle}>Personal Details</h3>
+      </div>
        {renderEditButton("Edit", goToDetails)}
       </div>
 
-      <div style={styles.rows}>
-       <p><b>Name:</b> {data.name}</p>
-       <p><b>Phone:</b> {data.phone}</p>
-       <p><b>Gender:</b> {data.gender}</p>
-       <p><b>Age:</b> {data.age ?? "-"}</p>
+      <div style={styles.detailGrid(isMobile)}>
+       {renderTile("Name", data.name || "-")}
+       {renderTile("Phone", formatPhoneNumber(data.phone, data.countryCode) || data.phone || "-")}
+       {renderTile("Gender", data.gender || "-")}
+       {renderTile("Looking For", data.lookingFor || "-")}
+       {renderTile("Date of Birth", formatDateOfBirth(data.dateOfBirth))}
+       {renderTile("Reference", data.referenceSource || "-")}
       </div>
      </div>
 
-     <div style={styles.sectionCard(isMobile)}>
-      <div style={styles.sectionHeader}>
-       <h3 style={styles.sectionTitle}>Training Flow</h3>
-       {renderEditButton("Edit", goToTraining)}
+     <div style={styles.sectionCard(isMobile, isCompactHeight)}>
+     <div style={styles.sectionHeader}>
+      <div>
+       <p style={styles.sectionEyebrow}>Assessment</p>
+       <h3 style={styles.sectionTitle}>Training Background</h3>
       </div>
-
-      <div style={styles.rows}>
-       <p><b>Purpose:</b> {data.purpose}</p>
-       <p><b>Injury:</b> {data.injury ? "Yes" : "No"}</p>
-       <p><b>Training Type:</b> {data.exerciseType}</p>
-       <p><b>Experience:</b> {data.experience}</p>
-      </div>
+      {renderEditButton("Edit", goToTraining)}
      </div>
 
-     <div style={styles.sectionCard(isMobile)}>
+      <div style={styles.detailGrid(isMobile)}>
+       {renderTile("Purpose", formatPurpose(data.purpose))}
+       {renderTile("Injury", data.injury ? "Yes" : "No")}
+       {renderTile("Training Type", data.exerciseType || "-")}
+       {renderTile("Experience", data.experience || "-")}
+       {renderTile("Prior Exercise Experience", formatYesNo(data.priorExerciseExperience))}
+      </div>
+
+      {data.priorExerciseExperience === "yes" && (
+       <div style={styles.subSection}>
+        <p style={styles.subSectionTitle}>Previous activity</p>
+        <div style={styles.detailGrid(isMobile)}>
+         {renderTile("Exercise / Sport", formatActivities(data.priorExerciseActivity))}
+         {renderTile("Experience Duration", data.priorExerciseDuration || "-")}
+         {renderTile("Last Active", data.lastExerciseTime || "-")}
+        </div>
+       </div>
+      )}
+     </div>
+
+     <div style={styles.sectionCard(isMobile, isCompactHeight)}>
       <div style={styles.sectionHeader}>
-       <h3 style={styles.sectionTitle}>Plan & Schedule</h3>
-       <div style={styles.editGroup}>
-        {renderEditButton("Program", goToProgram)}
-        {renderEditButton("Batch", goToBatch)}
+       <div>
+        <p style={styles.sectionEyebrow}>Program</p>
+        <h3 style={styles.sectionTitle}>Program & Batch</h3>
+       </div>
+       {!isBookingFlow || isTrialBooking ? (
+        <div style={styles.editGroup}>
+         {renderEditButton("Program", goToProgram)}
+         {renderEditButton("Batch", goToBatch)}
+        </div>
+       ) : null}
+      </div>
+
+      {isBookingFlow && !isTrialBooking ? (
+       <div style={styles.inlineEditStack}>
+
+        {/* Program */}
+        <div style={styles.inlineEditRow}>
+         <div style={styles.inlineEditTile}>
+          <div>
+           <p style={styles.detailLabel}>Program</p>
+           <p style={styles.detailValue}>{data.program || "-"}</p>
+          </div>
+          <button type="button" style={styles.changeButton} onClick={() => toggleEditor("program")}>
+           {expandedEditor === "program" ? "Close" : "Change"}
+          </button>
+         </div>
+         {expandedEditor === "program" && (
+          <div style={styles.inlineOptions}>
+           {plans.map((plan) => (
+            <ChoiceCard
+             key={plan.id}
+             title={plan.name}
+             subtitle={plan.pricing?.[0] ? `From ₹${plan.pricing[0].price.toLocaleString("en-IN")}` : plan.days || ""}
+             selected={matchesLabel(plan.name, data.program)}
+             badgeLabel={matchesLabel(plan.name, data.program) ? "Current" : "Select"}
+             centered={false}
+             onClick={() => handleChangeProgram(plan)}
+            />
+           ))}
+          </div>
+         )}
+        </div>
+
+        {/* Duration */}
+        <div style={styles.inlineEditRow}>
+         <div style={styles.inlineEditTile}>
+          <div>
+           <p style={styles.detailLabel}>Plan Duration</p>
+           <p style={styles.detailValue}>{data.duration || "-"}</p>
+          </div>
+          {selectedPlan?.pricing && selectedPlan.pricing.length > 1 && (
+           <button type="button" style={styles.changeButton} onClick={() => toggleEditor("duration")}>
+            {expandedEditor === "duration" ? "Close" : "Change"}
+           </button>
+          )}
+         </div>
+         {expandedEditor === "duration" && selectedPlan?.pricing && (
+          <div style={styles.inlineOptions}>
+           {selectedPlan.pricing
+            .filter((p) => p.duration !== "1 Day")
+            .map((pricing, index) => (
+             <ChoiceCard
+              key={pricing.duration}
+              title={pricing.duration}
+              subtitle={`₹${pricing.price.toLocaleString("en-IN")}`}
+              selected={data.duration === pricing.duration}
+              badgeLabel={data.duration === pricing.duration ? "Current" : index === 0 ? "Popular" : "Pick"}
+              centered={false}
+              onClick={() => handleChangeDuration((selectedPlan.pricing ?? []).indexOf(pricing))}
+             />
+            ))}
+          </div>
+         )}
+        </div>
+
+        {/* Batch Type */}
+        <div style={styles.inlineEditRow}>
+         <div style={styles.inlineEditTile}>
+          <div>
+           <p style={styles.detailLabel}>Batch Type</p>
+           <p style={styles.detailValue}>{data.batchType || "-"}</p>
+          </div>
+          {schedulePeriodOptions.length > 1 && (
+           <button type="button" style={styles.changeButton} onClick={() => toggleEditor("batchType")}>
+            {expandedEditor === "batchType" ? "Close" : "Change"}
+           </button>
+          )}
+         </div>
+         {expandedEditor === "batchType" && schedulePeriodOptions.length > 0 && (
+          <div style={styles.inlineOptions}>
+           {schedulePeriodOptions.map((option) => (
+            <ChoiceCard
+             key={option.value}
+             title={option.label}
+             subtitle={`${option.timings.length} slot${option.timings.length === 1 ? "" : "s"} available`}
+             selected={data.batchType === option.value}
+             badgeLabel={data.batchType === option.value ? "Current" : "Pick"}
+             centered={false}
+             onClick={() => handleChangeBatchType(option.value)}
+            />
+           ))}
+          </div>
+         )}
+        </div>
+
+        {/* Batch Time */}
+        <div style={styles.inlineEditRow}>
+         <div style={styles.inlineEditTile}>
+          <div>
+           <p style={styles.detailLabel}>Batch Time</p>
+           <p style={styles.detailValue}>{data.batchTime || "-"}</p>
+          </div>
+          {bookingTimings.length > 1 && (
+           <button type="button" style={styles.changeButton} onClick={() => toggleEditor("batchTime")}>
+            {expandedEditor === "batchTime" ? "Close" : "Change"}
+           </button>
+          )}
+         </div>
+         {expandedEditor === "batchTime" && bookingTimings.length > 0 && (
+          <div style={styles.inlineOptions}>
+           {bookingTimings.map((timing, index) => (
+            <ChoiceCard
+             key={timing}
+             title={timing}
+             subtitle={index === 0 ? "Recommended" : "Available"}
+             selected={data.batchTime === timing}
+             badgeLabel={data.batchTime === timing ? "Current" : "Pick"}
+             centered
+             onClick={() => handleChangeBatchTime(timing)}
+            />
+           ))}
+          </div>
+         )}
+        </div>
+
+        {/* Read-only summary tiles */}
+        <div style={styles.detailGrid(isMobile)}>
+         {renderTile("Price", data.price ? `₹${data.price.toLocaleString("en-IN")}` : "-")}
+         {renderTile("Days", data.days || "-")}
+        </div>
+       </div>
+      ) : (
+       <div style={styles.detailGrid(isMobile)}>
+        {renderTile("Program", data.program || "-")}
+        {renderTile("Plan Duration", data.duration || "-")}
+        {renderTile("Batch Type", data.batchType || "-")}
+        {renderTile("Batch Time", data.batchTime || "-")}
+        {renderTile("Price", data.price ? `₹${data.price}` : "-")}
+        {renderTile("Days", data.days || "-")}
+       </div>
+      )}
+     </div>
+
+     {shouldShowProfilePhotoOnReview && (
+      <div style={styles.sectionCard(isMobile, isCompactHeight)}>
+       <div style={styles.sectionHeader}>
+        <div>
+         <p style={styles.sectionEyebrow}>Verification</p>
+         <h3 style={styles.sectionTitle}>Profile Photo Capture</h3>
+         <p style={styles.sectionHint}>
+          Add a profile photo for the member record now, or skip it and continue to payment.
+         </p>
+        </div>
+        <span style={styles.optionalPill}>Optional</span>
+       </div>
+
+       <div style={styles.photoCaptureLayout(isMobile)}>
+        <div style={styles.photoPreviewCard}>
+         {displayPhotoUrl ? (
+          <img src={displayPhotoUrl} alt="Member profile preview" style={styles.photoPreviewImage} />
+         ) : (
+          <div style={styles.photoPreviewPlaceholder}>
+           <span style={styles.photoPlaceholderBadge}>No Photo</span>
+           <p style={styles.photoPlaceholderText}>Open camera or choose gallery to capture client photo.</p>
+          </div>
+         )}
+        </div>
+
+        <div style={styles.photoActionColumn}>
+         <div style={styles.photoActionRow}>
+          <button
+           type="button"
+           onClick={() => {
+            void handleOpenCamera()
+           }}
+           style={styles.photoSecondaryButton}
+           disabled={cameraLoading || photoUploading || cameraOpen}
+          >
+           {cameraLoading && !cameraOpen ? "Opening..." : photoUploading ? "Uploading..." : "Open Camera"}
+          </button>
+
+          <button
+           type="button"
+           onClick={() => {
+            galleryInputRef.current?.click()
+           }}
+           style={styles.photoSecondaryButton}
+           disabled={cameraLoading || photoUploading}
+          >
+           Choose Gallery
+          </button>
+
+          <button
+           type="button"
+           onClick={handleRetryPhotoUpload}
+           style={styles.photoTertiaryButton}
+           disabled={cameraLoading || photoUploading || !pendingPhotoBlob}
+          >
+           Retry Upload
+          </button>
+         </div>
+
+         <input
+          ref={galleryInputRef}
+          type="file"
+          accept="image/*"
+          onChange={(event) => {
+           void handleGalleryFile(event.target.files?.[0] || null)
+           event.currentTarget.value = ""
+          }}
+          style={{ display: "none" }}
+         />
+
+         {photoStatusMessage && <p style={styles.photoStatus}>{photoStatusMessage}</p>}
+         {photoError && <p style={styles.photoError}>{photoError}</p>}
+        </div>
+       </div>
+      </div>
+     )}
+
+     {isBookingFlow && (
+      <div style={styles.sectionCard(isMobile, isCompactHeight)}>
+       <div style={styles.sectionHeader}>
+        <div>
+         <p style={styles.sectionEyebrow}>Pricing</p>
+         <h3 style={styles.sectionTitle}>Price Breakdown</h3>
+        </div>
+       </div>
+
+       <div style={styles.breakdownCard}>
+        {buildPriceBreakdown("Main Plan", mainPlanPrice, selectedAddonPlans).map((item) => (
+         <div key={item.label} style={styles.breakdownRow}>
+          <span style={styles.breakdownLabel}>{item.label}</span>
+          <span style={styles.breakdownValue}>₹{item.amount.toLocaleString("en-IN")}</span>
+         </div>
+        ))}
+
+        {selectedAddonPlans.length > 0 && (
+         <>
+          <div style={styles.breakdownDivider} />
+          <div style={styles.breakdownRowTotal}>
+           <span style={styles.breakdownLabel}>Add-ons Total</span>
+           <span style={styles.breakdownValue}>₹{addonTotal.toLocaleString("en-IN")}</span>
+          </div>
+         </>
+        )}
+
+        {trialCreditApplied && (
+         <div style={styles.breakdownRow}>
+          <span style={{ ...styles.breakdownLabel, color: "#4ade80" }}>Trial Credit</span>
+          <span style={{ ...styles.breakdownValue, color: "#4ade80" }}>- ₹{TRIAL_FEE.toLocaleString("en-IN")}</span>
+         </div>
+        )}
+
+        <div style={styles.breakdownDivider} />
+        <div style={styles.breakdownRowTotal}>
+         <span style={styles.breakdownLabel}>Total</span>
+         <span style={styles.breakdownValue}>₹{(isTrialBooking ? TRIAL_FEE : bookingPrice).toLocaleString("en-IN")}</span>
+        </div>
+
+        {!isTrialBooking && (
+         <>
+          <div style={styles.breakdownDivider} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>
+           <span style={styles.breakdownLabel}>Partial Payment</span>
+           <button
+            type="button"
+            onClick={() => {
+             setPartialEnabled((prev) => !prev)
+             setPartialInput("")
+             setPartialError("")
+            }}
+            style={{
+             background: partialEnabled ? colors.primary : "rgba(255,255,255,0.08)",
+             border: "none",
+             borderRadius: "999px",
+             color: partialEnabled ? colors.textOnAccent : colors.textSecondary,
+             fontSize: "12px",
+             fontWeight: 700,
+             padding: "4px 14px",
+             cursor: "pointer"
+            }}
+           >
+            {partialEnabled ? "On" : "Off"}
+           </button>
+          </div>
+
+          {partialEnabled && (
+           <div style={{ display: "flex", flexDirection: "column" as const, gap: "6px" }}>
+            <input
+             type="number"
+             min={1}
+             max={bookingPrice - 1}
+             placeholder={`Enter partial amount (max ₹${bookingPrice - 1})`}
+             value={partialInput}
+             onChange={(e) => {
+              setPartialInput(e.target.value)
+              setPartialError("")
+             }}
+             style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: radius.md,
+              border: `1px solid ${partialError ? "#F1A596" : colors.border}`,
+              background: "rgba(255,255,255,0.06)",
+              color: colors.textPrimary,
+              fontSize: "15px",
+              boxSizing: "border-box" as const,
+             outline: "none"
+             }}
+            />
+            <p style={{ margin: 0, color: colors.textMuted, fontSize: "12px", lineHeight: 1.5 }}>
+             All payment methods support partial collection. Card and EMI methods add a 2% surcharge on the full plan amount.
+            </p>
+            {partialInput && !isNaN(parseInt(partialInput, 10)) && parseInt(partialInput, 10) > 0 && parseInt(partialInput, 10) < bookingPrice && (
+             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", color: colors.textSecondary }}>
+              <span>Collect now: <b style={{ color: "#4ade80" }}>₹{parseInt(partialInput, 10).toLocaleString("en-IN")}</b></span>
+              <span>Base remaining: <b style={{ color: "#f59e0b" }}>₹{(bookingPrice - parseInt(partialInput, 10)).toLocaleString("en-IN")}</b></span>
+             </div>
+            )}
+            {partialError && <p style={{ margin: 0, color: "#F1A596", fontSize: "13px" }}>{partialError}</p>}
+           </div>
+          )}
+         </>
+        )}
+       </div>
+      </div>
+     )}
+
+     {isBookingFlow && (
+      <div style={styles.sectionCard(isMobile, isCompactHeight)}>
+      <div style={styles.sectionHeader}>
+       <div>
+        <p style={styles.sectionEyebrow}>Next Step</p>
+        <h3 style={styles.sectionTitle}>{bookingCardTitle}</h3>
        </div>
       </div>
 
-      <div style={styles.rows}>
-       <p><b>Program:</b> {data.program}</p>
-       <p><b>Days:</b> {data.days}</p>
-       <p><b>Plan Duration:</b> {isTrialFlow ? "Free Trial" : data.duration}</p>
-       <p><b>Batch Type:</b> {data.batchType}</p>
-       <p><b>Batch Time:</b> {data.batchTime}</p>
-       <p><b>Price:</b> {isTrialFlow ? "Free Trial" : `₹${data.price}`}</p>
+       <div style={styles.followUpGrid(isMobile)}>
+        {data.purpose === "trial" ? (
+         <DialogDateField
+          label="Trial Booking Date"
+          value={data.batchDate}
+          onChange={(value) => {
+           setBookingError("")
+           data.setData({ batchDate: value })
+          }}
+          options={trialDateOptions}
+          helperText="Open the calendar-style picker and confirm the trial day."
+          error={bookingError && !data.batchDate ? bookingError : ""}
+          min={followUpMinDate}
+          pickerTitle="Select Trial Date"
+          size="compact"
+         />
+        ) : (
+         <DialogDateField
+          label={data.purpose === "enroll" ? "Joining Date" : "Renewal Date"}
+          value={data.batchDate}
+          onChange={(value) => {
+           setBookingError("")
+           data.setData({ batchDate: value })
+          }}
+          min={followUpMinDate}
+          helperText={
+           data.purpose === "enroll"
+            ? "Open the picker and confirm the joining date."
+            : "Open the picker and confirm the renewal date."
+          }
+          error={bookingError && !data.batchDate && data.purpose !== "renew" ? bookingError : ""}
+          pickerTitle={data.purpose === "enroll" ? "Select Joining Date" : "Select Renewal Date"}
+          size="compact"
+         />
+        )}
+
+        {isPersonalTraining && (
+         <DialogTimeField
+          label={
+           data.purpose === "trial"
+            ? "Trial Booking Time"
+            : data.purpose === "enroll"
+             ? "Joining Time"
+             : "Renewal Time"
+          }
+          value={data.batchTime}
+          onChange={(value) => {
+           setBookingError("")
+           data.setData({
+            batchTime: value,
+            batchType: resolvedBookingBatchType
+           })
+          }}
+          options={bookingTimeSlotOptions}
+          error={bookingError && !data.batchTime ? bookingError : ""}
+          helperText="Use the dialog picker or choose a suggested batch time."
+          allowCustom
+          emptyMessage="No booking times are available for this plan."
+          pickerTitle={
+           data.purpose === "trial"
+            ? "Select Trial Time"
+            : data.purpose === "enroll"
+             ? "Select Joining Time"
+             : "Select Renewal Time"
+          }
+         />
+        )}
+       </div>
+
+       {bookingError && <p style={styles.bookingError}>{bookingError}</p>}
       </div>
+     )}
+
+     {isEnquiryFlow && (
+      <div style={styles.sectionCard(isMobile, isCompactHeight)}>
+     <div style={styles.sectionHeader}>
+      <div>
+       <p style={styles.sectionEyebrow}>Reminder</p>
+       <h3 style={styles.sectionTitle}>Follow-up</h3>
+      </div>
+      <span style={styles.optionalPill}>Optional</span>
      </div>
 
+       <div style={styles.followUpGrid(isMobile)}>
+        <DialogDateField
+         label="Follow-up Date"
+         value={data.followUpDate}
+         onChange={(value) => data.setData({ followUpDate: value })}
+         min={followUpMinDate}
+         helperText="Open the picker and confirm the reminder date."
+         pickerTitle="Select Follow-up Date"
+         size="compact"
+        />
+
+        <DialogTimeField
+         label="Follow-up Time"
+         value={data.followUpTime}
+         onChange={(value) => data.setData({ followUpTime: value })}
+         options={[]}
+         helperText="Open the time picker and confirm the reminder time."
+         customOnly
+         pickerTitle="Select Follow-up Time"
+         size="compact"
+        />
+       </div>
+      </div>
+     )}
     </div>
 
-    <div
-     style={{
-      marginTop: spacing.lg,
-      display: "flex",
-      justifyContent: "space-between",
-      gap: spacing.md,
-      flexDirection: isMobile ? "column" : "row"
-     }}
-    >
+    <div style={styles.actionCard}>
+     <div style={styles.actionCopy}>
+      <p style={styles.actionKicker}>
+       {isEnquiryFlow ? "Finish enquiry" : "Continue to payment"}
+      </p>
+     </div>
 
-     <PrimaryButton
-      title="Back"
-      onClick={() => navigate(-1)}
-     />
-
-     <PrimaryButton
-      title={
-       isEnquiryFlow
-        ? "Submit Enquiry"
-        : isTrialFlow
-         ? "Confirm Free Trial"
+     <div style={styles.actionButtonWrap}>
+      <PrimaryButton
+       title={
+        isEnquiryFlow
+         ? savingEnquiry
+          ? "Saving..."
+          : "Finish"
          : "Proceed to Payment"
-      }
-      onClick={handleContinue}
-     />
-
+       }
+       onClick={handleContinue}
+       disabled={savingEnquiry || (shouldShowProfilePhotoOnReview && photoUploading)}
+       fullWidth
+      />
+     </div>
     </div>
 
+    {cameraOpen && (
+     <div style={styles.cameraOverlay}>
+      <div style={styles.cameraCard}>
+       <p style={styles.cameraTitle}>Capture Profile Photo</p>
+
+       <div style={styles.cameraViewport}>
+        <video
+         ref={videoRef}
+         autoPlay
+         playsInline
+         muted
+         onLoadedMetadata={() => {
+          setCameraReady(true)
+         }}
+         style={styles.cameraVideo}
+        />
+       </div>
+
+       <p style={styles.cameraHint}>
+        {cameraReady ? "Align the face and capture." : "Starting camera..."}
+       </p>
+
+       <div style={styles.cameraActionRow}>
+        <button
+         type="button"
+         onClick={() => {
+          stopCamera()
+         }}
+         style={styles.cameraSecondaryButton}
+        >
+         Cancel
+        </button>
+
+        <button
+         type="button"
+         onClick={() => {
+          void handleCapturePhoto()
+         }}
+         style={styles.cameraPrimaryButton}
+         disabled={!cameraReady || cameraLoading || photoUploading}
+        >
+         Capture
+        </button>
+       </div>
+      </div>
+     </div>
+    )}
+
+    {saveError && isEnquiryFlow && <p style={styles.saveError}>{saveError}</p>}
    </div>
-
   </Container>
-
  )
 }
 
 const styles = {
- sectionCard: (isMobile: boolean) => ({
-  padding: isMobile ? "18px" : "24px",
+ wrapper: {
+  width: "min(100%, 760px)",
+  margin: "0 auto"
+ },
+ heroCard: {
+  marginBottom: spacing.lg,
+  padding: "clamp(18px, 2.2vh, 28px)",
   border: `1px solid ${colors.border}`,
   borderRadius: radius.lg,
-  background: "rgba(255,255,255,0.03)"
+  background:
+   "linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.018)), radial-gradient(circle at top right, rgba(200,169,108,0.12), transparent 36%), radial-gradient(circle at bottom left, rgba(106,166,154,0.10), transparent 32%)",
+  boxShadow: "0 24px 60px rgba(0,0,0,0.24)",
+  backdropFilter: "blur(14px)"
+ },
+ heroHeader: {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: spacing.md,
+  flexWrap: "wrap" as const,
+  marginBottom: spacing.md
+ },
+ kicker: {
+  color: colors.primaryLight,
+  letterSpacing: "0.18em",
+  textTransform: "uppercase" as const,
+  fontSize: "12px",
+  fontWeight: 700,
+  marginBottom: spacing.xs
+ },
+ heroTitle: {
+  ...typography.subtitle,
+  fontSize: "clamp(28px, 3.6vh, 38px)",
+  margin: 0
+ },
+ heroSubtitle: {
+  color: colors.textSecondary,
+  lineHeight: 1.65,
+  marginTop: spacing.sm,
+  maxWidth: "54ch"
+ },
+ statusPill: {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "10px 14px",
+  borderRadius: "999px",
+  border: `1px solid ${colors.borderStrong}`,
+  background: "rgba(255,255,255,0.05)",
+  color: colors.primaryLight,
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.14em",
+  textTransform: "uppercase" as const
+ },
+ heroGrid: (isMobile: boolean) => ({
+  display: "grid",
+  gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+  gap: spacing.md
  }),
-
+ noticeCard: {
+  marginTop: spacing.lg,
+  padding: "16px 18px",
+  borderRadius: radius.md,
+  border: `1px solid ${colors.borderStrong}`,
+  background: "linear-gradient(135deg, rgba(200,169,108,0.16), rgba(106,166,154,0.08))"
+ },
+ noticeTitle: {
+  color: colors.primaryLight,
+  fontSize: "13px",
+  lineHeight: 1.4,
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase" as const,
+  marginBottom: "6px"
+ },
+ noticeText: {
+  color: colors.textSecondary,
+  fontSize: "13px",
+  lineHeight: 1.6
+ },
+ sectionStack: {
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: spacing.md
+ },
+ sectionCard: (isMobile: boolean, isCompactHeight: boolean) => ({
+  padding: isMobile ? "18px" : isCompactHeight ? "20px" : "22px",
+  border: `1px solid ${colors.border}`,
+  borderRadius: radius.lg,
+  background: "linear-gradient(160deg, rgba(255,255,255,0.05), rgba(255,255,255,0.016))",
+  boxShadow: "0 20px 60px rgba(0,0,0,0.22)",
+  backdropFilter: "blur(10px)"
+ }),
  sectionHeader: {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "center",
+  alignItems: "flex-start",
   gap: spacing.sm,
   flexWrap: "wrap" as const,
   marginBottom: spacing.md
  },
-
+ sectionEyebrow: {
+  color: colors.secondary,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.18em",
+  fontSize: "11px",
+  fontWeight: 700,
+  marginBottom: spacing.xs
+ },
  sectionTitle: {
   ...typography.subtitle,
-  fontSize: "28px"
+  fontSize: "24px",
+  marginBottom: "4px"
  },
-
+ sectionHint: {
+  color: colors.textSecondary,
+  lineHeight: 1.5,
+  fontSize: "13px",
+  maxWidth: "56ch"
+ },
  editGroup: {
   display: "flex",
   gap: spacing.sm,
   flexWrap: "wrap" as const
  },
-
- rows: {
-  lineHeight: "28px",
+ optionalPill: {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "8px 12px",
+  borderRadius: "999px",
+  border: `1px solid ${colors.borderStrong}`,
+  background: "rgba(255,255,255,0.04)",
+  color: colors.textMuted,
+  fontSize: "11px",
+  fontWeight: 700,
+  letterSpacing: "0.14em",
+  textTransform: "uppercase" as const
+ },
+ detailGrid: (isMobile: boolean) => ({
+  display: "grid",
+  gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+  gap: spacing.md
+ }),
+ detailTile: {
+  minHeight: "88px",
+  padding: "16px",
+  borderRadius: radius.md,
+  border: `1px solid ${colors.borderStrong}`,
+  background: "linear-gradient(160deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015))"
+ },
+ detailTileAccent: {
+  border: `1px solid ${colors.primaryLight}`,
+  background: "linear-gradient(160deg, rgba(200,169,108,0.18), rgba(106,166,154,0.08))"
+ },
+ detailLabel: {
+  color: colors.textMuted,
+  fontSize: "11px",
+  lineHeight: 1.4,
+  marginBottom: "8px",
+  letterSpacing: "0.16em",
+  textTransform: "uppercase" as const,
+  fontWeight: 700
+ },
+ detailValue: {
+  color: colors.textPrimary,
+  fontSize: "15px",
+  lineHeight: 1.5,
+  fontWeight: 700,
+  wordBreak: "break-word" as const
+ },
+ subSection: {
+  marginTop: spacing.lg,
+  paddingTop: spacing.lg,
+  borderTop: `1px solid ${colors.border}`
+ },
+ subSectionTitle: {
+  color: colors.primaryLight,
+  fontSize: "13px",
+  letterSpacing: "0.16em",
+  textTransform: "uppercase" as const,
+  fontWeight: 700,
+  marginBottom: spacing.sm
+ },
+ followUpGrid: (isMobile: boolean) => ({
+  display: "grid",
+  gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+  gap: spacing.md
+ }),
+ photoCaptureLayout: (isMobile: boolean) => ({
+  display: "grid",
+  gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1fr) minmax(0, 1.15fr)",
+  gap: spacing.md,
+  alignItems: "start"
+ }),
+ photoPreviewCard: {
+  width: "100%",
+  aspectRatio: "1 / 1",
+  borderRadius: radius.md,
+  overflow: "hidden",
+  border: `1px solid ${colors.borderStrong}`,
+  background: "linear-gradient(180deg, rgba(10,18,23,0.92), rgba(6,12,16,0.96))",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center"
+ },
+ photoPreviewImage: {
+  width: "100%",
+  height: "100%",
+  objectFit: "cover" as const
+ },
+ photoPreviewPlaceholder: {
+  width: "100%",
+  height: "100%",
   display: "flex",
   flexDirection: "column" as const,
-  gap: "4px"
+  alignItems: "center",
+  justifyContent: "center",
+  textAlign: "center" as const,
+  padding: spacing.md,
+  gap: spacing.sm
+ },
+ photoPlaceholderBadge: {
+  padding: "10px 14px",
+  borderRadius: "999px",
+  border: `1px solid ${colors.borderStrong}`,
+  color: colors.primaryLight,
+  letterSpacing: "0.12em",
+  textTransform: "uppercase" as const,
+  fontSize: "11px",
+  fontWeight: 700
+ },
+ photoPlaceholderText: {
+  color: colors.textSecondary,
+  fontSize: "13px",
+  lineHeight: 1.55,
+  maxWidth: "260px"
+ },
+ photoActionColumn: {
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: spacing.sm
+ },
+ photoActionRow: {
+  display: "flex",
+  flexWrap: "wrap" as const,
+  gap: spacing.sm
+ },
+ photoSecondaryButton: {
+  borderRadius: "999px",
+  border: `1px solid ${colors.borderStrong}`,
+  background: "rgba(255,255,255,0.04)",
+  color: colors.textPrimary,
+  padding: "10px 16px",
+  cursor: "pointer",
+  fontSize: "12px",
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase" as const
+ },
+ photoTertiaryButton: {
+  borderRadius: "999px",
+  border: `1px solid ${colors.border}`,
+  background: "transparent",
+  color: colors.primaryLight,
+  padding: "10px 16px",
+  cursor: "pointer",
+  fontSize: "12px",
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase" as const
+ },
+ photoStatus: {
+  color: colors.textSecondary,
+  fontSize: "13px",
+  lineHeight: 1.55,
+  margin: 0
+ },
+ photoError: {
+  color: "#F1A596",
+  fontSize: "13px",
+  lineHeight: 1.55,
+  margin: 0
+ },
+ breakdownCard: {
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: "12px",
+  padding: "16px 18px",
+  borderRadius: radius.md,
+  border: `1px solid ${colors.borderStrong}`,
+  background: "rgba(255,255,255,0.03)"
+ },
+ breakdownRow: {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: spacing.md,
+  alignItems: "center"
+ },
+ breakdownRowTotal: {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: spacing.md,
+  alignItems: "center",
+  fontWeight: 800
+ },
+ breakdownLabel: {
+  color: colors.textSecondary,
+  fontSize: "14px",
+  lineHeight: 1.5
+ },
+ breakdownValue: {
+  color: colors.textPrimary,
+  fontSize: "15px",
+  fontWeight: 700,
+  textAlign: "right" as const
+ },
+ breakdownDivider: {
+  height: "1px",
+  width: "100%",
+  background: colors.borderStrong,
+  opacity: 0.8
+ },
+ bookingError: {
+  color: "#F1A596",
+  fontSize: "14px",
+  lineHeight: 1.5,
+  marginTop: spacing.sm
+ },
+ actionCard: {
+  marginTop: spacing.lg,
+  padding: "18px 20px",
+  borderRadius: radius.lg,
+  border: `1px solid ${colors.borderStrong}`,
+  background:
+   "linear-gradient(160deg, rgba(255,255,255,0.05), rgba(255,255,255,0.018)), radial-gradient(circle at top right, rgba(200,169,108,0.08), transparent 34%)",
+  boxShadow: "0 20px 50px rgba(0,0,0,0.2)",
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: spacing.md,
+  flexWrap: "wrap" as const
+ },
+ actionCopy: {
+  flex: "1 1 320px"
+ },
+ actionKicker: {
+  color: colors.primaryLight,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.16em",
+  fontSize: "11px",
+  fontWeight: 700,
+  marginBottom: spacing.xs
+ },
+ actionText: {
+  color: colors.textSecondary,
+  lineHeight: 1.6,
+  maxWidth: "50ch"
+ },
+ actionButtonWrap: {
+  flex: "0 0 auto",
+  width: "min(100%, 280px)"
+ },
+ cameraOverlay: {
+  position: "fixed" as const,
+  inset: 0,
+  background: "rgba(4,11,16,0.9)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: spacing.lg,
+  zIndex: 1000
+ },
+ cameraCard: {
+  width: "min(100%, 460px)",
+  padding: spacing.lg,
+  borderRadius: radius.lg,
+  border: `1px solid ${colors.borderStrong}`,
+  background: "linear-gradient(160deg, rgba(17,28,35,0.98), rgba(8,15,20,0.98))",
+  boxShadow: "0 32px 120px rgba(0,0,0,0.45)"
+ },
+ cameraTitle: {
+  color: colors.textPrimary,
+  fontSize: "18px",
+  fontWeight: 800,
+  textAlign: "center" as const,
+  marginBottom: spacing.md
+ },
+ cameraViewport: {
+  width: "100%",
+  aspectRatio: "1 / 1",
+  borderRadius: radius.md,
+  overflow: "hidden",
+  border: `1px solid ${colors.border}`,
+  background: "#000"
+ },
+ cameraVideo: {
+  width: "100%",
+  height: "100%",
+  objectFit: "cover" as const
+ },
+ cameraHint: {
+  color: colors.textSecondary,
+  fontSize: "13px",
+  lineHeight: 1.5,
+  textAlign: "center" as const,
+  marginTop: spacing.md
+ },
+ cameraActionRow: {
+  display: "flex",
+  justifyContent: "center",
+  gap: spacing.sm,
+  flexWrap: "wrap" as const,
+  marginTop: spacing.md
+ },
+ cameraSecondaryButton: {
+  borderRadius: "999px",
+  border: `1px solid ${colors.border}`,
+  background: "rgba(255,255,255,0.04)",
+  color: colors.textPrimary,
+  padding: "10px 16px",
+  cursor: "pointer",
+  fontSize: "12px",
+  fontWeight: 700
+ },
+ cameraPrimaryButton: {
+  borderRadius: "999px",
+  border: "none",
+  background: colors.primary,
+  color: colors.textOnAccent,
+  padding: "10px 18px",
+  cursor: "pointer",
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase" as const
+ },
+ saveError: {
+  marginTop: spacing.md,
+  color: "#F1A596",
+  fontSize: "14px",
+  lineHeight: 1.5,
+  textAlign: "center" as const
+ },
+ inlineEditStack: {
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: spacing.sm
+ },
+ inlineEditRow: {
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: spacing.xs
+ },
+ inlineEditTile: {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: `${spacing.sm} ${spacing.md}`,
+  borderRadius: radius.md,
+  border: `1px solid ${colors.border}`,
+  background: "rgba(255,255,255,0.04)",
+  gap: spacing.sm
+ },
+ changeButton: {
+  flexShrink: 0,
+  background: "transparent",
+  border: `1px solid ${colors.border}`,
+  borderRadius: "999px",
+  color: colors.textSecondary,
+  fontSize: "12px",
+  fontWeight: 700,
+  padding: "4px 12px",
+  cursor: "pointer",
+  letterSpacing: "0.04em"
+ },
+ inlineOptions: {
+  display: "flex",
+  flexWrap: "wrap" as const,
+  gap: spacing.xs
  }
 }

@@ -19,9 +19,11 @@ export default function SpecificGoalScreen() {
 
  return (
 
-  <Container>
+  <Container centerContent>
 
-   <div style={{ textAlign: "center" }}>
+   <div style={styles.wrapper}>
+
+    <div style={{ textAlign: "center" }}>
 
     <h2
      style={{
@@ -32,9 +34,9 @@ export default function SpecificGoalScreen() {
      What exactly do you want?
     </h2>
 
-   </div>
+    </div>
 
-   <Grid>
+    <Grid>
 
     <OptionCard
      title="Fat Loss"
@@ -56,10 +58,20 @@ export default function SpecificGoalScreen() {
      onClick={() => selectGoal("Discipline")}
     />
 
-   </Grid>
+    </Grid>
+
+   </div>
 
   </Container>
 
  )
 
+}
+
+const styles = {
+ wrapper: {
+  width: "100%",
+  maxWidth: "720px",
+  margin: "0 auto"
+ }
 }

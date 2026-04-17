@@ -1,106 +1,162 @@
-import { useState } from "react"
 import { useNavigate } from "@/navigation/useAppNavigation"
 import Container from "../../layout/Container"
-import StaffPinConfirmation from "../../components/payments/StaffPinConfirmation"
+import PrimaryButton from "../../components/buttons/PrimaryButton"
 import { useUserStore } from "../../store/userStore"
 import { colors, radius, spacing, typography } from "../../styles/GlobalStyles"
+import { TRIAL_FEE, TRIAL_FEE_NOTE } from "../../utils/trialPricing"
+import {
+ getPaymentCollectionAmount,
+ getPaymentMethodLabel,
+ getPaymentMethodOption,
+ getPaymentTotalAmount,
+ getRemainingPaymentAmount,
+ getResolvedPaymentSurchargeAmount
+} from "../../utils/payment"
 
 const formatPrice = (price: number) => `Rs. ${price.toLocaleString("en-IN")}`
 
 export default function CashPaymentScreen() {
  const navigate = useNavigate()
- const { name, program, duration, batchType, batchTime, price, setData } = useUserStore()
- const [pin, setPin] = useState("")
- const [pinError, setPinError] = useState("")
- const [confirming, setConfirming] = useState(false)
+ const {
+  program,
+  duration,
+  batchType,
+  batchTime,
+  price,
+  purpose,
+  paymentMethod,
+  isPartialPayment,
+  paidAmount,
+  dueAmount,
+  paymentCollectionStep,
+  paymentMethod1,
+  paymentSurchargeAmount,
+  setData
+ } = useUserStore()
+ const isTrialBooking = purpose === "trial"
+ const baseAmount = isTrialBooking ? TRIAL_FEE : price
+ const selectedMethod = paymentMethod || "cash"
+ const isSecondCollectionStep = isPartialPayment && paymentCollectionStep === 2
+ const payableAmount = getPaymentCollectionAmount({
+  baseAmount,
+  method: selectedMethod,
+  isPartialPayment,
+  firstInstallmentAmount: paidAmount,
+  paymentCollectionStep,
+  lockedSurchargeAmount: paymentSurchargeAmount
+ })
+ const resolvedSurchargeAmount = getResolvedPaymentSurchargeAmount(
+  baseAmount,
+  selectedMethod,
+  paymentSurchargeAmount
+ )
+ const totalPayableAmount = getPaymentTotalAmount(baseAmount, selectedMethod, paymentSurchargeAmount)
+ const paymentMethodOption = getPaymentMethodOption(selectedMethod)
+ const paymentLabel = getPaymentMethodLabel(selectedMethod)
+ const screenTitle = paymentMethodOption?.detailTitle || "Payment Collection"
+ const actionLabel = paymentMethodOption?.detailActionLabel || "Collect Payment"
+ const paymentHint =
+  paymentMethodOption?.detailHint || "Confirm the payment has been completed before finishing."
 
- const staffPin = (process.env.NEXT_PUBLIC_STAFF_PIN || process.env.NEXT_PUBLIC_ADMIN_PIN || "2580").trim()
+ const handleFinish = async () => {
+  if (isPartialPayment && paymentCollectionStep === 1) {
+   const nextDueAmount = getRemainingPaymentAmount(
+    baseAmount,
+    paidAmount,
+    selectedMethod,
+    paymentSurchargeAmount
+   )
 
- const handleBack = () => {
-  setData({
-   paymentReference: "",
-   paymentMethod: "",
-   paymentStatus: ""
-  })
-  navigate("/payment")
- }
+   setData({
+    paymentMethod: selectedMethod,
+    paymentMethod1: selectedMethod,
+    paymentMethod2: "",
+    paymentStatus: "partial",
+    paymentCollectionStep: 2,
+    paymentSurchargeAmount: resolvedSurchargeAmount,
+    paymentTotalAmount: totalPayableAmount,
+    dueAmount: nextDueAmount
+   })
 
- const handleConfirm = async () => {
-  if (pin.trim() !== staffPin) {
-   setPinError("Invalid staff PIN.")
+   await Promise.resolve()
+   navigate("/payment", { replace: true })
    return
   }
 
-  try {
-   setConfirming(true)
-   setPinError("")
+  setData({
+   paymentStatus: "paid",
+   paymentMethod: selectedMethod,
+   paymentMethod1: isPartialPayment ? paymentMethod1 || selectedMethod : selectedMethod,
+   paymentMethod2: isPartialPayment ? selectedMethod : "",
+   dueAmount: isPartialPayment ? payableAmount : 0,
+   paymentSurchargeAmount: resolvedSurchargeAmount,
+   paymentTotalAmount: totalPayableAmount
+  })
 
-   setData({ paymentStatus: "paid" })
-   navigate("/success")
-  } catch (error) {
-   console.error("Failed to confirm cash payment:", error)
-   setPinError("We could not confirm this payment right now. Please try again.")
-  } finally {
-   setConfirming(false)
-  }
+  await Promise.resolve()
+  navigate("/consent", { replace: true })
  }
 
  return (
-  <Container>
+  <Container scrollable>
    <div style={styles.wrapper}>
-    <h2 style={styles.heading}>Cash Collection</h2>
-
-    <p style={styles.description}>
-     Collect the amount at the front desk, then confirm below once the payment has been received.
-    </p>
+    <h2 style={styles.heading}>{screenTitle}</h2>
 
     <div style={styles.amountCard}>
-     <span style={styles.amountLabel}>Collect Cash</span>
-     <strong style={styles.amount}>{formatPrice(price)}</strong>
+     <span style={styles.amountLabel}>{actionLabel}</span>
+     <strong style={styles.amount}>{formatPrice(payableAmount)}</strong>
     </div>
 
+    {isTrialBooking && (
+     <div style={styles.noticeCard}>
+      <p style={styles.noticeTitle}>Trial booking fee: ₹{TRIAL_FEE}</p>
+      <p style={styles.noticeText}>{TRIAL_FEE_NOTE}</p>
+     </div>
+    )}
+
+    {isPartialPayment && (
+     <div style={styles.noticeCard}>
+      <p style={styles.noticeTitle}>{isSecondCollectionStep ? "Final collection" : "First collection"}</p>
+      <p style={styles.noticeText}>
+       {isSecondCollectionStep
+        ? `Collect the remaining ₹${dueAmount.toLocaleString("en-IN")} now.`
+        : resolvedSurchargeAmount > 0
+         ? `After this ₹${paidAmount.toLocaleString("en-IN")} collection, the remaining amount will be ₹${getRemainingPaymentAmount(baseAmount, paidAmount, selectedMethod, paymentSurchargeAmount).toLocaleString("en-IN")} because card/EMI surcharge is applied on the full plan amount.`
+         : `After this ₹${paidAmount.toLocaleString("en-IN")} collection, the remaining amount will be ₹${getRemainingPaymentAmount(baseAmount, paidAmount, selectedMethod, paymentSurchargeAmount).toLocaleString("en-IN")}.`}
+      </p>
+     </div>
+    )}
+
+    {resolvedSurchargeAmount > 0 && (
+     <div style={styles.noticeCard}>
+      <p style={styles.noticeTitle}>Surcharge Applied</p>
+      <p style={styles.noticeText}>
+       ₹{resolvedSurchargeAmount.toLocaleString("en-IN")} has been added on the full plan amount. Total payable is ₹{totalPayableAmount.toLocaleString("en-IN")}.
+      </p>
+     </div>
+    )}
+
     <div style={styles.summaryCard}>
-     <h3 style={styles.summaryHeading}>Enrollment Summary</h3>
+     <h3 style={styles.summaryHeading}>Booking Snapshot</h3>
      <div style={styles.summaryRows}>
-      <p><b>Name:</b> {name}</p>
       <p><b>Program:</b> {program}</p>
       <p><b>Duration:</b> {duration}</p>
+      <p><b>Payment Method:</b> {paymentLabel}</p>
       <p><b>Batch:</b> {batchType || "-"} {batchTime ? `| ${batchTime}` : ""}</p>
      </div>
     </div>
 
-    <div style={styles.noteCard}>
-     <p style={styles.noteText}>
-      Confirm this only after the member has handed over the cash amount to the staff.
-     </p>
+    <div style={styles.sessionCard}>
+     <p style={styles.sessionText}>{paymentHint}</p>
+     <div style={styles.sessionActions}>
+      <PrimaryButton
+       title="Finish"
+       onClick={() => {
+        void handleFinish()
+       }}
+      />
+     </div>
     </div>
-
-    <div style={styles.actions}>
-     <button
-      type="button"
-      onClick={() => {
-       void handleBack()
-      }}
-      style={styles.secondaryButton}
-     >
-      Change Method
-     </button>
-    </div>
-
-    <StaffPinConfirmation
-     pin={pin}
-     error={pinError}
-     helperText="Only staff should complete this step after receiving the cash amount at the counter."
-     buttonTitle="Staff Confirm Cash"
-     loading={confirming}
-     onPinChange={(value) => {
-      setPin(value)
-      setPinError("")
-     }}
-     onConfirm={() => {
-      void handleConfirm()
-     }}
-    />
    </div>
   </Container>
  )
@@ -132,6 +188,27 @@ const styles = {
   display: "flex",
   flexDirection: "column" as const,
   gap: spacing.xs
+ },
+ noticeCard: {
+  marginTop: spacing.lg,
+  padding: "14px 16px",
+  borderRadius: radius.md,
+  border: `1px solid ${colors.border}`,
+  background: "rgba(200,169,108,0.08)",
+  textAlign: "left" as const
+ },
+ noticeTitle: {
+  color: colors.primaryLight,
+  fontSize: "12px",
+  fontWeight: 800,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.12em",
+  marginBottom: "6px"
+ },
+ noticeText: {
+  color: colors.textSecondary,
+  lineHeight: 1.6,
+  fontSize: "13px"
  },
 
  amountLabel: {
@@ -183,7 +260,21 @@ const styles = {
   lineHeight: 1.6
  },
 
- actions: {
+ sessionCard: {
+  marginTop: spacing.lg,
+  padding: spacing.lg,
+  borderRadius: radius.lg,
+  border: `1px solid ${colors.border}`,
+  background: "rgba(106,166,154,0.12)"
+ },
+
+ sessionText: {
+  color: colors.textPrimary,
+  lineHeight: 1.6,
+  marginBottom: spacing.md
+ },
+
+ sessionActions: {
   display: "flex",
   gap: spacing.md,
   justifyContent: "center",
@@ -191,18 +282,11 @@ const styles = {
   flexWrap: "wrap" as const
  },
 
- secondaryButton: {
-  minHeight: "52px",
-  marginTop: "30px",
-  borderRadius: "999px",
-  border: `1px solid ${colors.borderStrong}`,
-  background: "transparent",
-  color: colors.primaryLight,
-  padding: "14px 22px",
-  cursor: "pointer",
-  letterSpacing: "0.12em",
-  textTransform: "uppercase" as const,
-  fontSize: "12px",
-  fontWeight: 700
+ actions: {
+  display: "flex",
+  gap: spacing.md,
+  justifyContent: "center",
+  alignItems: "center",
+  flexWrap: "wrap" as const
  }
 }

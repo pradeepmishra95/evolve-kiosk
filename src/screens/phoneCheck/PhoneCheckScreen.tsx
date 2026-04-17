@@ -1,474 +1,372 @@
-import { useState } from "react"
-import { useNavigate } from "@/navigation/useAppNavigation"
-import { collection, doc, getDoc, getDocs, query, serverTimestamp, where } from "firebase/firestore"
-import { db } from "../../firebase/firebase"
-import Container from "../../layout/Container"
-import TextInput from "../../components/inputs/TextInput"
-import PrimaryButton from "../../components/buttons/PrimaryButton"
-import { useUserStore, type UserStoreData } from "../../store/userStore"
-import type { EnquirySource, EnquiryStatus, PaymentMethod, PaymentStatus, UserGender, UserPurpose, UserStatus } from "../../types/domain"
-import { colors, spacing, typography } from "../../styles/GlobalStyles"
-import { normalizePhoneNumber, validatePhoneNumber } from "../../utils/validation"
+"use client";
 
-const emptyLookupState: UserStoreData = {
- language: "",
- purpose: "",
- primaryGoal: "",
- specificGoal: "",
- enquiryMessage: "",
- name: "",
- age: null,
- phone: "",
- gender: "",
- experience: "",
- injury: false,
- injuryAnswered: false,
- injuryDetails: "",
- exerciseType: "",
- program: "",
- plan: "",
- coach: "",
- days: "",
- price: 0,
- duration: "",
- batchType: "",
- batchTime: "",
- paymentReference: "",
- paymentMethod: "",
- paymentStatus: "",
- status: "new"
-}
+import { useEffect, useMemo, useRef, useState } from "react";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/firebase/firebase";
+import { useNavigate } from "@/navigation/useAppNavigation";
+import type { MembershipDuration, UserGender, UserStatus } from "@/types/domain";
+import { useUserStore } from "@/store/userStore";
+import { calculateAgeFromDateOfBirth } from "@/utils/dateOfBirth";
+import Container from "../../layout/Container";
+import PhoneInput from "../../components/inputs/PhoneInput";
+import { colors, radius, shadow, typography } from "../../styles/GlobalStyles";
+import {
+ DEFAULT_PHONE_COUNTRY_CODE,
+ getPhoneDocumentId,
+ normalizeCountryCode,
+ normalizePhoneNumber,
+ validatePhoneNumber
+} from "../../utils/validation";
 
-const isPaymentMethod = (value: unknown): value is PaymentMethod =>
- value === "cash" || value === "upi" || value === ""
+const PHONE_LOOKUP_TIMEOUT_MS = 8000
 
-const isPaymentStatus = (value: unknown): value is PaymentStatus =>
- value === "free" ||
- value === "cash_pending" ||
- value === "upi_pending" ||
- value === "paid" ||
- value === "cancelled" ||
- value === ""
-
-const isUserGender = (value: unknown): value is UserGender =>
- value === "male" || value === "female" || value === "other" || value === ""
-
-const isUserPurpose = (value: unknown): value is UserPurpose =>
- value === "trial" || value === "enroll" || value === "enquiry" || value === ""
-
-const isUserStatus = (value: unknown): value is UserStatus =>
- value === "new" || value === "enquiry" || value === "trial" || value === "member" || value === ""
-
-const isEnquiryStatus = (value: unknown): value is EnquiryStatus =>
- value === "new" ||
- value === "contacted" ||
- value === "trial_booked" ||
- value === "ready_for_enrollment" ||
- value === "converted"
-
-const isEnquirySource = (value: unknown): value is EnquirySource =>
- value === "website" ||
- value === "instagram" ||
- value === "walk_in" ||
- value === "other" ||
- value === "kiosk"
-
-const toNullableNumber = (value: unknown) =>
- typeof value === "number" && Number.isFinite(value) ? value : null
-
-const toNumber = (value: unknown) =>
- typeof value === "number" && Number.isFinite(value) ? value : 0
-
-const toTimeValue = (value: unknown) => {
- if (value instanceof Date) {
-  return value.getTime()
- }
-
- if (typeof value === "string") {
-  const parsedValue = Date.parse(value)
-  return Number.isNaN(parsedValue) ? 0 : parsedValue
- }
-
- if (
-  value &&
-  typeof value === "object" &&
-  "toMillis" in value &&
-  typeof value.toMillis === "function"
- ) {
-  return value.toMillis()
- }
-
- return 0
-}
-
-const getRecordRecency = (data: Record<string, unknown>) =>
- Math.max(
-  toTimeValue(data.updatedAt),
-  toTimeValue(data.createdAt),
-  toTimeValue(data.enquiryCreatedAt),
-  toTimeValue(data.expiryDate)
- )
-
-const getMostRecentRecord = (records: Record<string, unknown>[]) =>
- records.reduce<Record<string, unknown> | undefined>((latestRecord, currentRecord) => {
-  if (!latestRecord) {
-   return currentRecord
-  }
-
-  return getRecordRecency(currentRecord) >= getRecordRecency(latestRecord)
-   ? currentRecord
-   : latestRecord
- }, undefined)
-
-const getPhoneLookupVariants = (phone: string) =>
- Array.from(new Set([
-  phone,
-  `0${phone}`,
-  `91${phone}`,
-  `+91${phone}`
- ]))
-
-const getUserStatusFromRecord = (data: Record<string, unknown>): UserStatus => {
- const enquiryStatus = isEnquiryStatus(data.enquiryStatus) ? data.enquiryStatus : ""
-
- if (enquiryStatus === "converted") {
-  return "member"
- }
-
- if (isUserStatus(data.status) && data.status && data.status !== "new") {
-  return data.status
- }
-
- if (enquiryStatus) {
-  return "enquiry"
- }
-
- if (
-  data.purpose === "trial" ||
-  data.duration === "Free Trial" ||
-  data.paymentStatus === "free"
- ) {
-  return "trial"
- }
-
- if (
-  data.purpose === "enroll" ||
-  data.paymentStatus === "paid" ||
-  (typeof data.program === "string" && data.program.trim().length > 0)
-  ) {
-  return "member"
- }
-
- if (data.purpose === "enquiry") {
-  return "enquiry"
- }
-
- return "new"
-}
-
-const mergeLegacyEnquiryIntoUser = (
- phone: string,
- existingUser?: Record<string, unknown>,
- legacyEnquiry?: Record<string, unknown>
-) => {
- const currentUser = existingUser ?? {}
- const legacyUser = legacyEnquiry ?? {}
-
- return {
-  ...currentUser,
-  name:
-   typeof currentUser.name === "string" && currentUser.name
-    ? currentUser.name
-    : String(legacyUser.name || ""),
-  phone,
-  age: typeof currentUser.age === "number" ? currentUser.age : legacyUser.age ?? null,
-  gender:
-   typeof currentUser.gender === "string" && currentUser.gender
-    ? currentUser.gender
-    : String(legacyUser.gender || ""),
-  purpose: currentUser.purpose || "enquiry",
-  status: "enquiry",
-  primaryGoal:
-   typeof currentUser.primaryGoal === "string" && currentUser.primaryGoal
-    ? currentUser.primaryGoal
-    : String(legacyUser.primaryGoal || ""),
-  enquiryMessage:
-   typeof currentUser.enquiryMessage === "string" && currentUser.enquiryMessage
-    ? currentUser.enquiryMessage
-    : String(legacyUser.message || ""),
-  experience:
-   typeof currentUser.experience === "string" && currentUser.experience
-    ? currentUser.experience
-    : String(legacyUser.experience || ""),
-  injury:
-   typeof currentUser.injury === "boolean"
-    ? currentUser.injury
-    : Boolean(legacyUser.injury),
-  injuryDetails:
-   typeof currentUser.injuryDetails === "string" && currentUser.injuryDetails
-    ? currentUser.injuryDetails
-    : String(legacyUser.injuryDetails || ""),
-  exerciseType:
-   typeof currentUser.exerciseType === "string" && currentUser.exerciseType
-    ? currentUser.exerciseType
-    : String(legacyUser.exerciseType || ""),
-  program:
-   typeof currentUser.program === "string" && currentUser.program
-    ? currentUser.program
-    : String(legacyUser.program || ""),
-  days:
-   typeof currentUser.days === "string" && currentUser.days
-    ? currentUser.days
-    : String(legacyUser.days || ""),
-  duration:
-   typeof currentUser.duration === "string" && currentUser.duration
-    ? currentUser.duration
-    : String(legacyUser.duration || ""),
-  batchType:
-   typeof currentUser.batchType === "string" && currentUser.batchType
-    ? currentUser.batchType
-    : String(legacyUser.batchType || ""),
-  batchTime:
-   typeof currentUser.batchTime === "string" && currentUser.batchTime
-    ? currentUser.batchTime
-    : String(legacyUser.batchTime || ""),
-  price:
-   typeof currentUser.price === "number"
-    ? currentUser.price
-    : typeof legacyUser.price === "number"
-     ? legacyUser.price
-     : 0,
-  enquiryStatus: isEnquiryStatus(legacyUser.status)
-   ? legacyUser.status
-   : isEnquiryStatus(currentUser.enquiryStatus)
-    ? currentUser.enquiryStatus
-    : "new",
-  enquirySource: isEnquirySource(legacyUser.source)
-   ? legacyUser.source
-   : isEnquirySource(currentUser.enquirySource)
-    ? currentUser.enquirySource
-    : "kiosk",
-  enquiryCreatedAt: legacyUser.createdAt ?? currentUser.enquiryCreatedAt ?? serverTimestamp(),
-  updatedAt: serverTimestamp()
- }
-}
-
-const buildLookupState = (
- phone: string,
- data?: Record<string, unknown>,
- statusResolver?: (record: Record<string, unknown>) => UserStatus
-): UserStoreData => {
- const resolvedData = data ?? {}
- const paymentMethod = isPaymentMethod(resolvedData.paymentMethod) ? resolvedData.paymentMethod : ""
- const paymentStatus = isPaymentStatus(resolvedData.paymentStatus) ? resolvedData.paymentStatus : ""
- const injury = typeof resolvedData.injury === "boolean" ? resolvedData.injury : false
- const injuryAnswered = typeof resolvedData.injuryAnswered === "boolean"
-  ? resolvedData.injuryAnswered
-  : typeof resolvedData.injury === "boolean"
-
- return {
-  ...emptyLookupState,
-  language: typeof resolvedData.language === "string" ? resolvedData.language : "",
-  purpose: isUserPurpose(resolvedData.purpose) ? resolvedData.purpose : "",
-  primaryGoal: typeof resolvedData.primaryGoal === "string" ? resolvedData.primaryGoal : "",
-  specificGoal: typeof resolvedData.specificGoal === "string" ? resolvedData.specificGoal : "",
-  enquiryMessage:
-   typeof resolvedData.enquiryMessage === "string"
-    ? resolvedData.enquiryMessage
-    : typeof resolvedData.message === "string"
-     ? resolvedData.message
-     : "",
-  name: typeof resolvedData.name === "string" ? resolvedData.name : "",
-  age: toNullableNumber(resolvedData.age),
-  phone,
-  gender: isUserGender(resolvedData.gender) ? resolvedData.gender : "",
-  experience: typeof resolvedData.experience === "string" ? resolvedData.experience : "",
-  injury,
-  injuryAnswered,
-  injuryDetails: typeof resolvedData.injuryDetails === "string" ? resolvedData.injuryDetails : "",
-  exerciseType: typeof resolvedData.exerciseType === "string" ? resolvedData.exerciseType : "",
-  program: typeof resolvedData.program === "string" ? resolvedData.program : "",
-  plan: typeof resolvedData.plan === "string" ? resolvedData.plan : "",
-  coach: typeof resolvedData.coach === "string" ? resolvedData.coach : "",
-  days: typeof resolvedData.days === "string" ? resolvedData.days : "",
-  price: toNumber(resolvedData.price),
-  duration:
-   typeof resolvedData.duration === "string"
-    ? resolvedData.duration as UserStoreData["duration"]
-    : "",
-  batchType: typeof resolvedData.batchType === "string" ? resolvedData.batchType : "",
-  batchTime: typeof resolvedData.batchTime === "string" ? resolvedData.batchTime : "",
-  paymentReference: typeof resolvedData.paymentReference === "string" ? resolvedData.paymentReference : "",
-  paymentMethod,
-  paymentStatus,
-  status: statusResolver ? statusResolver(resolvedData) : "new"
- }
-}
+type ExistingUser = {
+  name?: string;
+  phone?: string;
+  countryCode?: string;
+  dateOfBirth?: string;
+  referenceSource?: string;
+  age?: number | null;
+  gender?: UserGender;
+  lookingFor?: string;
+  experience?: string;
+  injury?: boolean;
+  injuryDetails?: string;
+  exerciseType?: string;
+  program?: string;
+  plan?: string;
+  duration?: MembershipDuration;
+  price?: number;
+  batchType?: string;
+  batchTime?: string;
+  batchDate?: string;
+  profilePhotoUrl?: string;
+  profilePhotoStoragePath?: string;
+  profilePhotoHash?: string;
+  profilePhotoUploadedAt?: string;
+  profilePhotoSource?: "camera" | "gallery" | "";
+  selectedAddOnIds?: string[];
+  mainPlanPrice?: number;
+  followUp?: {
+    date?: string;
+    time?: string;
+  } | null;
+  purpose?: "trial" | "enroll" | "renew" | "enquiry";
+  status?: UserStatus;
+};
 
 export default function PhoneCheckScreen() {
+  const navigate = useNavigate();
+  const { setData, reset, countryCode: storedCountryCode } = useUserStore();
+  const isMountedRef = useRef(true);
 
- const navigate = useNavigate()
- const [phone, setPhone] = useState("")
- const [phoneError, setPhoneError] = useState("")
- const [lookupError, setLookupError] = useState("")
- const [loading, setLoading] = useState(false)
- const setData = useUserStore(state => state.setData)
+  const [phone, setPhone] = useState("");
+  const [countryCode, setCountryCode] = useState(
+    storedCountryCode || DEFAULT_PHONE_COUNTRY_CODE
+  );
+  const [isChecking, setIsChecking] = useState(false);
+  const [error, setError] = useState("");
 
- const handlePhoneChange = (value: string) => {
-  setPhone(normalizePhoneNumber(value))
-  setPhoneError("")
-  setLookupError("")
- }
+  const phoneValidation = useMemo(
+    () => validatePhoneNumber(phone, countryCode),
+    [phone, countryCode]
+  );
+  const isValidPhone = phoneValidation.isValid;
+  const showContinueLoader = isChecking && isValidPhone;
 
- const checkUser = async () => {
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
-  const phoneValidation = validatePhoneNumber(phone)
+  const getPhoneLookupErrorMessage = (err: unknown) => {
+    if (typeof err === "object" && err && "code" in err) {
+      const code = String((err as { code?: unknown }).code ?? "")
 
-  if (!phoneValidation.isValid) {
-   setPhoneError(phoneValidation.error)
-   return
+      if (code.includes("permission-denied")) {
+        return "Phone lookup is blocked right now. Please try again."
+      }
+
+      if (
+        code.includes("unavailable") ||
+        code.includes("deadline-exceeded") ||
+        code.includes("resource-exhausted")
+      ) {
+        return "Phone check is taking too long. Please check internet and try again."
+      }
+
+      return `Phone lookup failed (${code || "unknown"}). Please try again.`
+    }
+
+    return "Phone number check karne me issue aaya. Please try again."
   }
 
-  try {
-   setLoading(true)
-   setLookupError("")
+  const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number) => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
 
-   const phoneVariants = getPhoneLookupVariants(phoneValidation.normalizedPhone)
-   const [directUserSnapshot, userSnapshot, legacyEnquirySnapshot] = await Promise.all([
-    getDoc(doc(db, "users", phoneValidation.normalizedPhone)),
-    getDocs(
-     query(
-      collection(db, "users"),
-      where("phone", "in", phoneVariants)
-     )
-    ),
-    getDocs(
-     query(
-      collection(db, "enquiries"),
-      where("phone", "in", phoneVariants)
-     )
-    )
-   ])
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          const timeoutError = new Error("Phone lookup timed out")
+          ;(timeoutError as Error & { code?: string }).code = "deadline-exceeded"
+          reject(timeoutError)
+        }, timeoutMs)
+      })
 
-   const userCandidates: Record<string, unknown>[] = [
-    ...(directUserSnapshot.exists() ? [directUserSnapshot.data()] : []),
-    ...userSnapshot.docs.map((userDoc) => userDoc.data())
-   ]
-
-   const existingUser = getMostRecentRecord(userCandidates)
-   const existingUserStatus = existingUser ? getUserStatusFromRecord(existingUser) : "new"
-
-   if (existingUser && existingUserStatus !== "new") {
-    setData(buildLookupState(phoneValidation.normalizedPhone, existingUser, getUserStatusFromRecord))
-    navigate("/return-user")
-    return
-   }
-
-   const legacyEnquiryCandidates = legacyEnquirySnapshot.docs.map((enquiryDoc) => enquiryDoc.data())
-   const legacyEnquiry = getMostRecentRecord(legacyEnquiryCandidates)
-
-   if (legacyEnquiry) {
-   const migratedUser = mergeLegacyEnquiryIntoUser(
-     phoneValidation.normalizedPhone,
-     existingUser,
-     legacyEnquiry
-    )
-
-    setData(buildLookupState(phoneValidation.normalizedPhone, migratedUser, getUserStatusFromRecord))
-    navigate("/return-user")
-    return
-   }
-
-   if (existingUser) {
-    setData(buildLookupState(phoneValidation.normalizedPhone, existingUser, getUserStatusFromRecord))
-    navigate("/return-user")
-    return
-   }
-
-   setData(buildLookupState(phoneValidation.normalizedPhone))
-
-   navigate("/return-user")
-
-  } catch (error) {
-
-   console.error("Error checking user:", error)
-   setLookupError("We could not check this phone number right now. Please try again.")
-
-  } finally {
-
-   setLoading(false)
-
+      return await Promise.race([promise, timeoutPromise])
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+    }
   }
 
- }
+  const handlePhoneChange = (value: string) => {
+    setPhone(value)
 
- return (
+    if (error) {
+      setError("")
+    }
+  }
 
-  <Container>
+  const handleCountryCodeChange = (value: string) => {
+    setCountryCode(normalizeCountryCode(value))
 
-   <div style={{ maxWidth: "500px", margin: "auto" }}>
+    if (error) {
+      setError("")
+    }
+  }
 
-    <h2
-     style={{
-      ...typography.subtitle,
-      textAlign: "center",
-      marginBottom: spacing.lg
-     }}
-    >
-     Check Membership
-    </h2>
+  const handleContinue = async () => {
+    if (!isValidPhone || isChecking) return;
 
-    <TextInput
-     label="Phone Number"
-     type="tel"
-     inputMode="numeric"
-     maxLength={10}
-     placeholder="Enter 10-digit phone number"
-     value={phone}
-     onChange={handlePhoneChange}
-     error={phoneError}
-    />
+    const userDocId = getPhoneDocumentId(
+      phoneValidation.normalizedPhone,
+      phoneValidation.countryCode
+    );
 
-    {lookupError && (
-     <p
-      style={{
-       color: "#F1A596",
-       marginTop: spacing.sm,
-       lineHeight: 1.6
-      }}
-     >
-      {lookupError}
-     </p>
-    )}
+    try {
+      setIsChecking(true);
+      setError("");
 
-    <p
-     style={{
-      color: colors.textSecondary,
-      marginTop: spacing.md,
-      lineHeight: 1.6
-     }}
-    >
-     Use the same phone number used for trial or membership.
-    </p>
+      const userRef = doc(db, "users", userDocId);
+      const snap = await withTimeout(getDoc(userRef), PHONE_LOOKUP_TIMEOUT_MS);
 
-    <div
-     style={{
-      display: "flex",
-      justifyContent: "center",
-      marginTop: "20px"
-     }}
-    >
-     <PrimaryButton
-      title={loading ? "Checking..." : "Continue"}
-      onClick={checkUser}
-      disabled={loading}
-     />
-    </div>
+      if (snap.exists()) {
+        const data = snap.data() as ExistingUser;
+        const resolvedAge =
+          typeof data.age === "number"
+           ? data.age
+           : calculateAgeFromDateOfBirth(data.dateOfBirth ?? "")
+        const resolvedCountryCode = normalizeCountryCode(
+          data.countryCode ?? phoneValidation.countryCode
+        )
+        const resolvedStatus = data.status ?? "new"
+        const resolvedStatusFromPurpose =
+          data.purpose === "enquiry"
+           ? "enquiry"
+           : data.purpose === "trial"
+            ? "trial"
+            : data.purpose === "enroll" || data.purpose === "renew"
+             ? "member"
+             : resolvedStatus
+        const nextStatus = resolvedStatus !== "new" ? resolvedStatus : resolvedStatusFromPurpose
+        const purposeMatchesStatus =
+          (nextStatus === "trial" && data.purpose === "trial") ||
+          (nextStatus === "member" && (data.purpose === "enroll" || data.purpose === "renew")) ||
+          (nextStatus === "enquiry" && data.purpose === "enquiry")
+        const resolvedPurpose = purposeMatchesStatus
+          ? data.purpose
+          : nextStatus === "enquiry"
+           ? "enquiry"
+           : nextStatus === "trial"
+            ? "trial"
+            : nextStatus === "member"
+             ? "renew"
+             : (data.purpose ?? "")
 
-   </div>
+        reset();
+        setData({
+          phone: normalizePhoneNumber(data.phone ?? phoneValidation.normalizedPhone, resolvedCountryCode),
+          countryCode: resolvedCountryCode,
+          name: data.name ?? "",
+          dateOfBirth: data.dateOfBirth ?? "",
+          age: resolvedAge,
+          purpose: resolvedPurpose,
+          gender: data.gender ?? "",
+          lookingFor: data.lookingFor ?? "",
+          referenceSource: data.referenceSource ?? "",
+          followUpDate:
+            typeof data.followUp === "object" && data.followUp ? data.followUp.date ?? "" : "",
+          followUpTime:
+            typeof data.followUp === "object" && data.followUp ? data.followUp.time ?? "" : "",
+          experience: data.experience ?? "",
+          injury: typeof data.injury === "boolean" ? data.injury : false,
+          injuryAnswered: true,
+          injuryDetails: data.injuryDetails ?? "",
+          exerciseType: data.exerciseType ?? "",
+          program: data.program ?? "",
+          plan: data.plan ?? "",
+          duration: data.duration ?? "",
+          price: typeof data.price === "number" ? data.price : 0,
+          selectedAddOnIds: Array.isArray(data.selectedAddOnIds)
+           ? data.selectedAddOnIds.filter((item): item is string => typeof item === "string")
+           : [],
+          mainPlanPrice: typeof data.mainPlanPrice === "number" ? data.mainPlanPrice : 0,
+          batchType: data.batchType ?? "",
+          batchTime: data.batchTime ?? "",
+          batchDate: data.batchDate ?? "",
+          profilePhotoUrl: data.profilePhotoUrl ?? "",
+          profilePhotoStoragePath: data.profilePhotoStoragePath ?? "",
+          profilePhotoHash: data.profilePhotoHash ?? "",
+          profilePhotoUploadedAt: data.profilePhotoUploadedAt ?? "",
+          profilePhotoSource:
+           data.profilePhotoSource === "camera" || data.profilePhotoSource === "gallery"
+            ? data.profilePhotoSource
+            : "",
+          status: nextStatus
+        });
 
-  </Container>
+        navigate("/return-user", { replace: true });
+        return;
+      }
 
- )
+      reset();
+      setData({
+        phone: phoneValidation.normalizedPhone,
+        countryCode: phoneValidation.countryCode,
+        purpose: "enquiry",
+        status: "enquiry"
+      });
 
+      navigate("/user-details");
+    } catch (err) {
+      console.error("Phone check failed:", err);
+      if (!isMountedRef.current) return;
+      setError(getPhoneLookupErrorMessage(err));
+    } finally {
+      if (isMountedRef.current) {
+        setIsChecking(false);
+      }
+    }
+  };
+
+  return (
+    <Container centerContent>
+      <div
+        style={{
+          width: "100%",
+          minHeight: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "clamp(4px, 1.2vh, 14px) 0",
+          boxSizing: "border-box",
+        }}
+      >
+        <div
+          style={{
+            width: "min(100%, 560px)",
+            padding: "clamp(20px, 3.2vh, 30px)",
+            borderRadius: radius.lg,
+            border: `1px solid ${colors.borderStrong}`,
+            background:
+              "radial-gradient(circle at top right, rgba(243,224,182,0.12), transparent 28%), linear-gradient(160deg, rgba(17,28,35,0.96), rgba(8,15,20,0.94))",
+            boxShadow: shadow.modal,
+            color: colors.textPrimary,
+            boxSizing: "border-box",
+          }}
+        >
+          <div style={{ textAlign: "center", marginBottom: 22 }}>
+           
+
+            <h1 style={{ ...typography.subtitle, margin: "10px 0 0", fontSize: "clamp(28px, 4vw, 38px)" }}>
+              Enter Phone Number
+            </h1>
+
+           
+          </div>
+
+          <PhoneInput
+            label="Mobile Number"
+            countryCode={countryCode}
+            phone={phone}
+            placeholder="Enter mobile number"
+            onCountryCodeChange={handleCountryCodeChange}
+            onPhoneChange={handlePhoneChange}
+            compact
+          />
+
+          <div style={{ marginTop: 14, minHeight: 28, textAlign: "center" }}>
+            {phone.length > 0 && !isValidPhone && (
+              <p style={{ margin: 0, color: "#F1A596", fontSize: 14 }}>
+                {phoneValidation.error}
+              </p>
+            )}
+
+            {error && (
+              <p style={{ margin: 0, color: "#F87171", fontSize: 14 }}>
+                {error}
+              </p>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleContinue}
+            disabled={!isValidPhone || isChecking}
+            style={{
+              marginTop: 20,
+              width: "100%",
+              height: 52,
+              border: "none",
+              borderRadius: radius.md,
+              background: !isValidPhone || isChecking ? "rgba(255,255,255,0.12)" : colors.primary,
+              color: !isValidPhone || isChecking ? colors.textMuted : colors.textOnAccent,
+              fontSize: 16,
+              fontWeight: 700,
+              cursor: !isValidPhone || isChecking ? "not-allowed" : "pointer",
+              letterSpacing: "0.02em",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10
+            }}
+            aria-busy={showContinueLoader}
+          >
+            {showContinueLoader && (
+              <>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 16,
+                    height: 16,
+                    borderRadius: "50%",
+                    border: "2px solid rgba(255,255,255,0.35)",
+                    borderTopColor: "rgba(255,255,255,0.95)",
+                    animation: "phone-check-spin 0.8s linear infinite"
+                  }}
+                />
+                <span>Checking</span>
+              </>
+            )}
+
+            {!showContinueLoader && <span>Continue</span>}
+          </button>
+        </div>
+      </div>
+
+      <style jsx>{`
+        @keyframes phone-check-spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      `}</style>
+    </Container>
+  );
 }

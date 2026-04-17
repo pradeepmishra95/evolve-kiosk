@@ -1,5 +1,5 @@
-import ClientRoutePage from "@/router/ClientRoutePage"
+import ClientRoutePage from "@/router/ClientRoutePage";
 
 export default function PhonePage() {
- return <ClientRoutePage route="/phone" />
+  return <ClientRoutePage route="/phone" />;
 }

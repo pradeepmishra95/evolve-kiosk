@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react"
+import type { InputHTMLAttributes } from "react"
 import { colors, spacing, radius, fontSize } from "../../styles/GlobalStyles"
 
 interface Props {
@@ -8,7 +8,11 @@ interface Props {
  type?: string
  placeholder?: string
  error?: string
- inputMode?: HTMLAttributes<HTMLInputElement>["inputMode"]
+ compact?: boolean
+ inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"]
+ autoComplete?: InputHTMLAttributes<HTMLInputElement>["autoComplete"]
+ min?: string
+ max?: string
  maxLength?: number
 }
 
@@ -19,13 +23,17 @@ export default function TextInput({
  type = "text",
  placeholder,
  error,
+ compact = false,
  inputMode,
+ autoComplete,
+ min,
+ max,
  maxLength
 }: Props) {
 
  return (
 
-  <div style={{ marginBottom: spacing.lg }}>
+  <div style={{ marginBottom: compact ? 0 : spacing.md }}>
 
    <label
     style={{
@@ -47,11 +55,14 @@ export default function TextInput({
     placeholder={placeholder}
     onChange={(e) => onChange(e.target.value)}
     inputMode={inputMode}
+    autoComplete={autoComplete}
+    min={min}
+    max={max}
     maxLength={maxLength}
     style={{
      width: "100%",
-     padding: "16px 18px",
-     fontSize: fontSize.md,
+     padding: "13px 16px",
+     fontSize: "15px",
      border: `1px solid ${error ? "#D97C6C" : colors.border}`,
      borderRadius: radius.md,
      outline: "none",
