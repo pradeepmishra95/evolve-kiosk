@@ -171,7 +171,7 @@ export default function DialogDateField({
  size = "default"
 }: DialogDateFieldProps) {
  const fieldId = useId()
- const resolvedOptions = options ?? []
+ const resolvedOptions = useMemo(() => options ?? [], [options])
  const hasOptionRestrictions = options !== undefined
  const minDate = useMemo(() => parseDateInputValue(min || ""), [min])
  const maxDate = useMemo(() => parseDateInputValue(max || ""), [max])

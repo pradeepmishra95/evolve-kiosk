@@ -526,39 +526,6 @@ export default function ReviewScreen() {
   navigate("/payment")
  }
 
- const saveEnquiryData = async () => {
-  await saveEnquirySubmission({
-   name: data.name,
-   phone: data.phone,
-   countryCode: data.countryCode,
-   dateOfBirth: data.dateOfBirth,
-   lookingFor: data.lookingFor,
-   referenceSource: data.referenceSource,
-   age: data.age,
-   gender: data.gender,
-   primaryGoal: data.primaryGoal,
-   enquiryMessage: data.enquiryMessage,
-   experience: data.experience,
-   priorExerciseExperience: data.priorExerciseExperience,
-   priorExerciseActivity: data.priorExerciseActivity,
-   priorExerciseDuration: data.priorExerciseDuration,
-   lastExerciseTime: data.lastExerciseTime,
-   injury: data.injury,
-   injuryDetails: data.injuryDetails,
-   exerciseType: data.exerciseType,
-   program: data.program,
-   days: data.days,
-   duration: data.duration,
-   batchType: data.batchType,
-   batchTime: data.batchTime,
-   batchDate: data.batchDate,
-   followUpDate: data.followUpDate,
-   followUpTime: data.followUpTime,
-   price: data.price,
-   staffUser
-  })
- }
-
  const handleProceedFromEnquiry = () => {
   if (!enquiryChoice || enquiryChoice === "followup") return
 

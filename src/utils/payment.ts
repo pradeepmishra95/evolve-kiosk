@@ -162,7 +162,5 @@ export const getPaymentCollectionAmount = ({
 // Returns the base remaining amount — no surcharge pre-calculated (surcharge decided when step 2 is paid)
 export const getRemainingPaymentAmount = (
  baseAmount: number,
- firstInstallmentAmount: number,
- _method?: PaymentMethod,
- _lockedSurchargeAmount?: number
+ firstInstallmentAmount: number
 ): number => Math.max(0, baseAmount - firstInstallmentAmount)

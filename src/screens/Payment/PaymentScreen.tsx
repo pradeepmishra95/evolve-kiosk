@@ -24,11 +24,6 @@ export default function PaymentScreen(){
  const isTrialBooking = data.purpose === "trial"
  const baseAmount = isTrialBooking ? TRIAL_FEE : data.price
  const isSecondCollectionStep = (data.isPartialPayment || data.isSplitPayment) && data.paymentCollectionStep === 2
- const splitCollectionAmount = data.isSplitPayment
-  ? isSecondCollectionStep
-   ? data.dueAmount
-   : data.paidAmount
-  : 0
  const availablePaymentMethods = PAYMENT_METHOD_OPTIONS.filter(
   (method) => !(isTrialBooking && (method.value === "emi" || method.value === "cheque"))
  )

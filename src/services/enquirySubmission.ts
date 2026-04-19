@@ -1,7 +1,7 @@
 import { doc, serverTimestamp, setDoc } from "firebase/firestore"
 import { db } from "../firebase/firebase"
 import type { StaffSessionUser } from "../store/authStore"
-import type { MembershipDuration, UserGender } from "../types/domain"
+import type { MembershipDuration, UserGender, UserPurpose, UserStatus } from "../types/domain"
 import { trackKioskSessionCompletion } from "./kioskSessions"
 import { getPhoneDocumentId } from "../utils/validation"
 
@@ -34,6 +34,8 @@ interface EnquirySubmissionPayload {
  followUpTime: string
  price: number
  staffUser: StaffSessionUser | null
+ purpose?: UserPurpose
+ status?: UserStatus
 }
 
 export const saveEnquirySubmission = async (payload: EnquirySubmissionPayload) => {
@@ -90,18 +92,18 @@ export const saveEnquirySubmission = async (payload: EnquirySubmissionPayload) =
    }
 
    // Only set purpose/status if explicitly provided in the payload — do not overwrite existing value otherwise
-   if ((payload as any).purpose) {
-    docData.purpose = (payload as any).purpose
+   if (payload.purpose) {
+    docData.purpose = payload.purpose
    }
 
-   if ((payload as any).status) {
-    docData.status = (payload as any).status
+   if (payload.status) {
+    docData.status = payload.status
    }
 
    await setDoc(doc(db, "users", phoneDocId), docData, { merge: true })
 
  await trackKioskSessionCompletion(staffMetadata.staffSessionId, {
-  purpose: (payload as any).purpose || "enquiry",
+  purpose: payload.purpose || "enquiry",
   program: payload.program
  })
 
