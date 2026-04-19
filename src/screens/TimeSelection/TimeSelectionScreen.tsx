@@ -13,7 +13,7 @@ import {
  getTimingsForPeriod,
  getUpcomingScheduleDatesForDays
 } from "../../utils/planSchedule"
-import { formatScheduleDate, getUpcomingScheduleDates } from "../../utils/schedule"
+import { formatScheduleDate, getUpcomingScheduleDates, isTrialBookingDateAllowed } from "../../utils/schedule"
 import { startOfDay, toDateInputValue } from "../../utils/dateTimeSelector"
 import { colors, radius, spacing, typography } from "../../styles/GlobalStyles"
 
@@ -40,8 +40,11 @@ export default function TimeSelectionScreen() {
   schedulePeriodOptions.find((option) => option.value === resolvedBatchType)?.label || "Custom"
  const batchTimings = getTimingsForPeriod(resolvedTimings, resolvedBatchType)
  const needsDateSelection = purpose === "trial" || purpose === "enroll"
+ const requestedDateCount = purpose === "trial" ? 28 : 7
  const dateOptions =
-  scheduleDays.length > 0 ? getUpcomingScheduleDatesForDays(scheduleDays, 7) : getUpcomingScheduleDates(7)
+  scheduleDays.length > 0
+   ? getUpcomingScheduleDatesForDays(scheduleDays, requestedDateCount)
+   : getUpcomingScheduleDates(requestedDateCount)
  const selectedTimeLabel = batchTime || ""
  const selectedDateLabel = batchDate ? formatScheduleDate(batchDate) : ""
  const timeOptions: DialogTimeOption[] = batchTimings.map((timing, index) => ({
@@ -49,12 +52,15 @@ export default function TimeSelectionScreen() {
   label: timing,
   description: index === 0 ? "Recommended" : "Available"
  }))
- const trialDateOptions: DialogDateOption[] = dateOptions.map((dateOption, index) => ({
-  ...dateOption,
-  disabled: timeOptions.length === 0,
-  description:
-   timeOptions.length > 0 ? (index === 0 ? `${timeOptions.length} slots · soonest` : `${timeOptions.length} slots`) : "No slots"
- }))
+ const trialDateOptions: DialogDateOption[] = dateOptions
+  .filter((dateOption) => isTrialBookingDateAllowed(dateOption.value))
+  .slice(0, 7)
+  .map((dateOption, index) => ({
+   ...dateOption,
+   disabled: timeOptions.length === 0,
+   description:
+    timeOptions.length > 0 ? (index === 0 ? `${timeOptions.length} slots · soonest` : `${timeOptions.length} slots`) : "No slots"
+  }))
 
  const handleBatchTypeChange = (value: string) => {
   setData({
@@ -73,6 +79,11 @@ export default function TimeSelectionScreen() {
 
   if (needsDateSelection && !batchDate) {
    setError("Please select a preferred start date.")
+   return
+  }
+
+  if (purpose === "trial" && !isTrialBookingDateAllowed(batchDate)) {
+   setError("Trial booking is not available on Wednesday, Saturday, or Sunday.")
    return
   }
 

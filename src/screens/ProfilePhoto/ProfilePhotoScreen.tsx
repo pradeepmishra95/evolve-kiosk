@@ -10,100 +10,15 @@ import { useUserStore } from "../../store/userStore"
 import { getProfilePhotoUploadStatusMessage, uploadProfilePhoto } from "../../services/profilePhoto"
 import type { ProfilePhotoSource } from "../../types/domain"
 import { colors, radius, shadow, spacing, typography } from "../../styles/GlobalStyles"
+import { optimizeProfilePhotoBlob } from "../../utils/profilePhotoCapture"
 import { formatPhoneNumber } from "../../utils/validation"
 
-const cameraConstraintAttempts: MediaStreamConstraints[] = [
- {
-  video: {
-   facingMode: {
-    exact: "user"
-   }
-  },
-  audio: false
- },
- {
-  video: {
-   facingMode: {
-    exact: "environment"
-   }
-  },
-  audio: false
- },
- {
-  video: true,
-  audio: false
- }
-]
-
 const PROFILE_PHOTO_FILE_NAME = "profile-photo.jpg"
-
-const canvasToBlob = (canvas: HTMLCanvasElement, quality = 0.9) =>
- new Promise<Blob>((resolve, reject) => {
-  canvas.toBlob(
-   (blob) => {
-    if (!blob) {
-     reject(new Error("Could not capture the photo."))
-     return
-    }
-
-    resolve(blob)
-   },
-   "image/jpeg",
-   quality
-  )
- })
-
-const captureFrameFromVideo = async (videoElement: HTMLVideoElement) => {
- const sourceWidth = videoElement.videoWidth
- const sourceHeight = videoElement.videoHeight
-
- if (!sourceWidth || !sourceHeight) {
-  throw new Error("Camera preview is not ready yet.")
- }
-
- const maxSize = 1280
- const scale = Math.min(maxSize / sourceWidth, maxSize / sourceHeight, 1)
- const width = Math.max(1, Math.round(sourceWidth * scale))
- const height = Math.max(1, Math.round(sourceHeight * scale))
-
- const canvas = document.createElement("canvas")
- canvas.width = width
- canvas.height = height
-
- const context = canvas.getContext("2d")
-
- if (!context) {
-  throw new Error("Could not capture the photo.")
- }
-
- context.drawImage(videoElement, 0, 0, width, height)
-
- return canvasToBlob(canvas, 0.9)
-}
-
-const getCameraErrorMessage = (error: unknown) => {
- const name =
-  typeof error === "object" && error && "name" in error ? String(error.name) : ""
-
- if (name === "NotAllowedError") {
-  return "Camera permission was denied. Allow camera access and try again."
- }
-
- if (name === "NotFoundError") {
-  return "No camera was found on this device."
- }
-
- if (name === "NotReadableError") {
-  return "The camera is already being used by another app."
- }
-
- return "Could not open the camera on this browser. Try gallery instead."
-}
 
 export default function ProfilePhotoScreen() {
  const navigate = useNavigate()
  const showToast = useToastStore((state) => state.showToast)
- const { isMobile, isTablet, isPortrait, isCompactHeight } = useDevice()
+ const { isMobile, isTablet, isPortrait } = useDevice()
 
  const {
   name,
@@ -120,28 +35,24 @@ export default function ProfilePhotoScreen() {
   setData
  } = useUserStore()
 
- const [cameraOpen, setCameraOpen] = useState(false)
- const [cameraReady, setCameraReady] = useState(false)
- const [cameraLoading, setCameraLoading] = useState(false)
  const [photoUploading, setPhotoUploading] = useState(false)
  const [errorMessage, setErrorMessage] = useState("")
  const [statusMessage, setStatusMessage] = useState(
   profilePhotoUrl || profilePhotoStoragePath
    ? "Profile photo already saved."
-   : "Capture a client profile photo to continue."
+   : "Take a client profile photo to continue."
  )
  const [pendingBlob, setPendingBlob] = useState<Blob | null>(null)
  const [pendingFileName, setPendingFileName] = useState(PROFILE_PHOTO_FILE_NAME)
  const [pendingSource, setPendingSource] = useState<ProfilePhotoSource>("camera")
  const [draftPreviewUrl, setDraftPreviewUrl] = useState("")
+ const cameraInputRef = useRef<HTMLInputElement | null>(null)
  const galleryInputRef = useRef<HTMLInputElement | null>(null)
- const videoRef = useRef<HTMLVideoElement | null>(null)
- const streamRef = useRef<MediaStream | null>(null)
  const previewUrlRef = useRef<string | null>(null)
 
  const displayPhotoUrl = draftPreviewUrl || profilePhotoUrl
  const hasSavedPhoto = Boolean(profilePhotoUrl || profilePhotoStoragePath)
- const isRequiredFlow = status === "new" && purpose !== "enquiry"
+ const isRequiredFlow = status === "new" && purpose === "enroll"
  const canContinue = (!isRequiredFlow || hasSavedPhoto) && !photoUploading
  const phoneLabel = formatPhoneNumber(phone, countryCode) || phone || "-"
  const ageLabel = typeof age === "number" ? `${age} years` : "-"
@@ -154,38 +65,11 @@ export default function ProfilePhotoScreen() {
   }
  }, [])
 
- const stopCamera = useCallback(() => {
-  streamRef.current?.getTracks().forEach((track) => track.stop())
-  streamRef.current = null
-
-  if (videoRef.current) {
-   videoRef.current.srcObject = null
-  }
-
-  setCameraOpen(false)
-  setCameraReady(false)
- }, [])
-
- useEffect(() => {
-  if (!cameraOpen || !videoRef.current || !streamRef.current) {
-   return
-  }
-
-  const videoElement = videoRef.current
-  videoElement.srcObject = streamRef.current
-
-  void videoElement.play().catch(() => {
-   setErrorMessage("Could not start the live camera preview. Try gallery instead.")
-   stopCamera()
-  })
- }, [cameraOpen, stopCamera])
-
  useEffect(() => {
   return () => {
-   stopCamera()
    releaseDraftPreview()
   }
- }, [releaseDraftPreview, stopCamera])
+ }, [releaseDraftPreview])
 
  useEffect(() => {
   if (profilePhotoUrl && !draftPreviewUrl) {
@@ -240,51 +124,17 @@ export default function ProfilePhotoScreen() {
   }
  }
 
- const handleOpenCamera = async () => {
-  if (!navigator.mediaDevices?.getUserMedia) {
-   setErrorMessage("This browser does not support camera access. Use gallery instead.")
-   return
-  }
-
-  try {
-   setCameraLoading(true)
-   setErrorMessage("")
-   setStatusMessage("Opening camera...")
-   stopCamera()
-   setCameraReady(false)
-
-   let stream: MediaStream | null = null
-   let lastError: unknown = null
-
-   for (const constraints of cameraConstraintAttempts) {
-    try {
-     stream = await navigator.mediaDevices.getUserMedia(constraints)
-     break
-    } catch (attemptError) {
-     lastError = attemptError
-    }
-   }
-
-   if (!stream) {
-    throw lastError
-   }
-
-   streamRef.current = stream
-   setCameraOpen(true)
-   setStatusMessage("Camera is ready. Align the face and capture the photo.")
-  } catch (cameraError) {
-   setErrorMessage(getCameraErrorMessage(cameraError))
-   setStatusMessage("Use gallery or try the camera again.")
-  } finally {
-   setCameraLoading(false)
-  }
+ const handleSelectTakePhoto = () => {
+  setErrorMessage("")
+  cameraInputRef.current?.click()
  }
 
  const handleSelectGallery = () => {
+  setErrorMessage("")
   galleryInputRef.current?.click()
  }
 
- const handleGalleryFile = async (file?: File | null) => {
+ const handlePhotoFile = async (file: File | null | undefined, source: ProfilePhotoSource) => {
   if (!file) {
    return
   }
@@ -294,41 +144,22 @@ export default function ProfilePhotoScreen() {
    return
   }
 
-  releaseDraftPreview()
-  const objectUrl = URL.createObjectURL(file)
-  previewUrlRef.current = objectUrl
-  setDraftPreviewUrl(objectUrl)
-  setPendingBlob(file)
-  setPendingFileName(file.name || PROFILE_PHOTO_FILE_NAME)
-  setPendingSource("gallery")
-  void uploadPhoto(file, "gallery", file.name || PROFILE_PHOTO_FILE_NAME)
- }
-
- const handleCapturePhoto = async () => {
-  if (!videoRef.current) {
-   setErrorMessage("Camera preview is not ready yet.")
-   return
-  }
-
   try {
-   setCameraLoading(true)
    setErrorMessage("")
-   const blob = await captureFrameFromVideo(videoRef.current)
-   stopCamera()
+   setStatusMessage(source === "camera" ? "Optimizing captured photo..." : "Optimizing selected photo...")
+   const optimizedBlob = await optimizeProfilePhotoBlob(file)
 
    releaseDraftPreview()
-   const objectUrl = URL.createObjectURL(blob)
+   const objectUrl = URL.createObjectURL(optimizedBlob)
    previewUrlRef.current = objectUrl
    setDraftPreviewUrl(objectUrl)
-   setPendingBlob(blob)
+   setPendingBlob(optimizedBlob)
    setPendingFileName(PROFILE_PHOTO_FILE_NAME)
-   setPendingSource("camera")
-   void uploadPhoto(blob, "camera", PROFILE_PHOTO_FILE_NAME)
-  } catch (captureError) {
-   setErrorMessage(captureError instanceof Error ? captureError.message : "Could not capture the photo.")
-   setStatusMessage("Try capturing the photo again.")
-  } finally {
-   setCameraLoading(false)
+   setPendingSource(source)
+   void uploadPhoto(optimizedBlob, source, PROFILE_PHOTO_FILE_NAME)
+  } catch (error) {
+   setErrorMessage(error instanceof Error ? error.message : "Could not process the selected photo.")
+   setStatusMessage("Please choose another image or try again.")
   }
  }
 
@@ -404,7 +235,7 @@ export default function ProfilePhotoScreen() {
          <div style={styles.placeholder}>
           <div style={styles.placeholderAvatar}>Photo</div>
           <p style={styles.placeholderTitle}>No photo captured yet</p>
-          <p style={styles.placeholderText}>Use the camera or gallery to create the member profile picture.</p>
+          <p style={styles.placeholderText}>Use Take Photo or Choose Gallery to create the member profile picture.</p>
          </div>
         )}
        </div>
@@ -412,20 +243,18 @@ export default function ProfilePhotoScreen() {
        <div style={styles.actionRow}>
         <button
          type="button"
-         onClick={() => {
-          void handleOpenCamera()
-         }}
+         onClick={handleSelectTakePhoto}
          style={styles.secondaryAction}
-         disabled={cameraLoading || photoUploading || cameraOpen}
+         disabled={photoUploading}
         >
-         {cameraLoading && !cameraOpen ? "Preparing..." : photoUploading ? "Uploading..." : "Open Camera"}
+         {photoUploading ? "Uploading..." : "Take Photo"}
         </button>
 
         <button
          type="button"
          onClick={handleSelectGallery}
          style={styles.secondaryAction}
-         disabled={cameraLoading || photoUploading}
+         disabled={photoUploading}
         >
          Choose Gallery
         </button>
@@ -434,18 +263,30 @@ export default function ProfilePhotoScreen() {
          type="button"
          onClick={handleRetryUpload}
          style={styles.tertiaryAction}
-         disabled={cameraLoading || photoUploading || !pendingBlob}
+         disabled={photoUploading || !pendingBlob}
         >
          Retry Upload
         </button>
        </div>
 
        <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="user"
+        onChange={(event) => {
+         void handlePhotoFile(event.target.files?.[0] || null, "camera")
+         event.currentTarget.value = ""
+        }}
+        style={{ display: "none" }}
+       />
+
+       <input
         ref={galleryInputRef}
         type="file"
         accept="image/*"
         onChange={(event) => {
-         void handleGalleryFile(event.target.files?.[0] || null)
+         void handlePhotoFile(event.target.files?.[0] || null, "gallery")
          event.currentTarget.value = ""
         }}
         style={{ display: "none" }}
@@ -486,53 +327,6 @@ export default function ProfilePhotoScreen() {
      </div>
     </div>
 
-    {cameraOpen && (
-     <div style={styles.cameraOverlay}>
-      <div style={styles.cameraCard(isMobile || isCompactHeight)}>
-       <p style={styles.cameraTitle}>Capture Profile Photo</p>
-
-       <div style={styles.cameraViewport}>
-        <video
-         ref={videoRef}
-         autoPlay
-         playsInline
-         muted
-         onLoadedMetadata={() => {
-          setCameraReady(true)
-         }}
-         style={styles.cameraVideo}
-        />
-       </div>
-
-       <p style={styles.cameraHint}>
-        {cameraReady ? "Align the face and capture the photo." : "Starting camera..."}
-       </p>
-
-       <div style={styles.cameraActionRow}>
-        <button
-         type="button"
-         onClick={() => {
-          stopCamera()
-         }}
-         style={styles.cameraSecondaryButton}
-        >
-         Cancel
-        </button>
-
-        <button
-         type="button"
-         onClick={() => {
-          void handleCapturePhoto()
-         }}
-         style={styles.cameraPrimaryButton}
-         disabled={!cameraReady || cameraLoading || photoUploading}
-        >
-         Capture
-        </button>
-       </div>
-      </div>
-     </div>
-    )}
    </div>
   </Container>
  )
@@ -792,79 +586,5 @@ const styles = {
   color: colors.textSecondary,
   lineHeight: 1.6,
   maxWidth: "560px"
- },
- cameraOverlay: {
-  position: "fixed" as const,
-  inset: 0,
-  background: "rgba(4,11,16,0.9)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: spacing.lg,
-  zIndex: 1000
- },
- cameraCard: (useCompactSpacing: boolean) => ({
-  width: "min(100%, 460px)",
-  padding: useCompactSpacing ? spacing.md : spacing.lg,
-  borderRadius: radius.lg,
-  border: `1px solid ${colors.borderStrong}`,
-  background: "linear-gradient(160deg, rgba(17,28,35,0.98), rgba(8,15,20,0.98))",
-  boxShadow: shadow.modal
- }),
- cameraTitle: {
-  color: colors.textPrimary,
-  fontSize: "18px",
-  fontWeight: 800,
-  textAlign: "center" as const,
-  marginBottom: spacing.md
- },
- cameraViewport: {
-  width: "100%",
-  aspectRatio: "1 / 1",
-  borderRadius: radius.md,
-  overflow: "hidden",
-  border: `1px solid ${colors.border}`,
-  background: "#000"
- },
- cameraVideo: {
-  width: "100%",
-  height: "100%",
-  objectFit: "cover" as const
- },
- cameraHint: {
-  color: colors.textSecondary,
-  fontSize: "13px",
-  lineHeight: 1.5,
-  textAlign: "center" as const,
-  marginTop: spacing.md
- },
- cameraActionRow: {
-  display: "flex",
-  justifyContent: "center",
-  gap: spacing.sm,
-  flexWrap: "wrap" as const,
-  marginTop: spacing.md
- },
- cameraSecondaryButton: {
-  borderRadius: "999px",
-  border: `1px solid ${colors.border}`,
-  background: "rgba(255,255,255,0.04)",
-  color: colors.textPrimary,
-  padding: "10px 16px",
-  cursor: "pointer",
-  fontSize: "12px",
-  fontWeight: 700
- },
- cameraPrimaryButton: {
-  borderRadius: "999px",
-  border: "none",
-  background: colors.primary,
-  color: colors.textOnAccent,
-  padding: "10px 18px",
-  cursor: "pointer",
-  fontSize: "12px",
-  fontWeight: 800,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase" as const
  }
 }

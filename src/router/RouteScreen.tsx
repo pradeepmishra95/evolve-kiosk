@@ -4,10 +4,13 @@ import { lazy, Suspense, useEffect, useLayoutEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { useAuthSync } from "../hooks/useAuthSync"
 import { useUserStore, type UserState } from "../store/userStore"
+import { useAuthStore } from "../store/authStore"
+import { syncRouteHistory } from "../navigation/routeHistory"
 import { hasCompletedExperienceQuestionnaire } from "../utils/experience"
 import { isPersonalTrainingLabel } from "../utils/labelMatch"
 import { validateAge, validateInjuryDetails, validateName, validatePhoneNumber } from "../utils/validation"
 import RouteFallback from "./RouteFallback"
+import StaffLoginScreen from "../screens/Auth/StaffLoginScreen"
 
 const WelcomeScreen = lazy(() => import("../screens/Welcome/WelcomeScreen"))
 const ReturnUserScreen = lazy(() => import("../screens/ReturnUser/ReturnUserScreen"))
@@ -92,7 +95,7 @@ const hasProfilePhoto = (state: UserState) =>
  Boolean(state.profilePhotoUrl || state.profilePhotoStoragePath)
 
 const shouldRequireProfilePhoto = (state: UserState) =>
- state.status === "new" && state.purpose !== "enquiry"
+ state.status === "new" && state.purpose === "enroll"
 
 const isExistingMemberFlow = (state: UserState) =>
  state.status === "member" || state.status === "trial"
@@ -242,14 +245,11 @@ const getRouteRedirect = (route: KioskRoute, state: UserState) => {
    return "/program"
   case "/time-selection":
    return "/program"
-  case "/review":
-   {
-    const redirect = getBatchTypeRedirect(state)
-
-    if (redirect) return redirect
-    if (!hasCompletedBatchSelection(state)) return "/program"
-    return null
-   }
+  case "/review": {
+   const redirect = getBatchTypeRedirect(state)
+   if (redirect) return redirect
+   return null
+  }
   case "/consent": {
    if (state.purpose === "enquiry") {
     return "/review"
@@ -341,6 +341,8 @@ export default function RouteScreen({ route }: { route: KioskRoute }) {
  const router = useRouter()
  const userHydrated = useUserStore((state) => state.hydrated)
  const state = useUserStore()
+ const authChecked = useAuthStore((state) => state.checked)
+ const authUser = useAuthStore((state) => state.user)
 
  const redirect = getRouteRedirect(route, state)
  const Screen = routeComponents[route]
@@ -351,8 +353,16 @@ export default function RouteScreen({ route }: { route: KioskRoute }) {
   }
  }, [pathname, redirect, router])
 
- if (!userHydrated) {
+ useEffect(() => {
+  syncRouteHistory(pathname)
+ }, [pathname])
+
+ if (!authChecked || !userHydrated) {
   return <RouteFallback />
+ }
+
+ if (!authUser) {
+  return <StaffLoginScreen />
  }
 
  if (!Screen) {

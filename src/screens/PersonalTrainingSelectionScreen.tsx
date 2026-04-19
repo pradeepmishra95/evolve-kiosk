@@ -25,7 +25,6 @@ export default function PersonalTrainingSelectionScreen(){
 
    setData({
     coach: coach.coach,
-    status: "trial",
     duration: trialPricing.duration,
     price: trialPricing.price,
     paymentReference: "",

@@ -19,12 +19,14 @@ import {
  getTimingsForPeriod,
  getUpcomingScheduleDatesForDays
 } from "../../utils/planSchedule"
-import { formatScheduleDate, getUpcomingScheduleDates } from "../../utils/schedule"
+import { formatScheduleDate, getUpcomingScheduleDates, isTrialBookingDateAllowed } from "../../utils/schedule"
 import { buildPriceBreakdown, resolveAddonPlans, resolvePlanPricing } from "../../utils/planPricing"
 import { TRIAL_FEE, TRIAL_FEE_NOTE } from "../../utils/trialPricing"
+import { PAYMENT_METHOD_OPTIONS, getPaymentSurchargeAmount } from "../../utils/payment"
 import { getProfilePhotoUploadStatusMessage, uploadProfilePhoto } from "../../services/profilePhoto"
 import type { ProfilePhotoSource, ProgramPlan } from "../../types/domain"
 import { startOfDay, toDateInputValue } from "../../utils/dateTimeSelector"
+import { optimizeProfilePhotoBlob } from "../../utils/profilePhotoCapture"
 
 const formatScheduleMoment = (date: string, time: string) => {
  const parts: string[] = []
@@ -40,176 +42,56 @@ const formatScheduleMoment = (date: string, time: string) => {
  return parts.length > 0 ? parts.join(" · ") : "-"
 }
 
-const cameraConstraintAttempts: MediaStreamConstraints[] = [
- {
-  video: {
-   facingMode: {
-    ideal: "user"
-   },
-   width: {
-    ideal: 1280
-   },
-   height: {
-    ideal: 720
-   }
-  },
-  audio: false
- },
- {
-  video: {
-   facingMode: {
-    ideal: "environment"
-   },
-   width: {
-    ideal: 1280
-   },
-   height: {
-    ideal: 720
-   }
-  },
-  audio: false
- },
- {
-  video: {
-   width: {
-    ideal: 1280
-   },
-   height: {
-    ideal: 720
-   }
-  },
-  audio: false
- },
- {
-  video: true,
-  audio: false
- }
-]
-
 const PROFILE_PHOTO_FILE_NAME = "profile-photo.jpg"
-
-const canvasToBlob = (canvas: HTMLCanvasElement, quality = 0.9) =>
- new Promise<Blob>((resolve, reject) => {
-  canvas.toBlob(
-   (blob) => {
-    if (!blob) {
-     reject(new Error("Could not capture the photo."))
-     return
-    }
-
-    resolve(blob)
-   },
-   "image/jpeg",
-   quality
-  )
- })
-
-const captureFrameFromVideo = async (videoElement: HTMLVideoElement) => {
- const sourceWidth = videoElement.videoWidth
- const sourceHeight = videoElement.videoHeight
-
- if (!sourceWidth || !sourceHeight) {
-  throw new Error("Camera preview is not ready yet.")
- }
-
- const maxSize = 1280
- const scale = Math.min(maxSize / sourceWidth, maxSize / sourceHeight, 1)
- const width = Math.max(1, Math.round(sourceWidth * scale))
- const height = Math.max(1, Math.round(sourceHeight * scale))
-
- const canvas = document.createElement("canvas")
- canvas.width = width
- canvas.height = height
-
- const context = canvas.getContext("2d")
-
- if (!context) {
-  throw new Error("Could not capture the photo.")
- }
-
- context.drawImage(videoElement, 0, 0, width, height)
-
- return canvasToBlob(canvas, 0.9)
-}
-
-const hasSecureCameraContext = () => {
- if (typeof window === "undefined") {
-  return true
- }
-
- if (window.isSecureContext) {
-  return true
- }
-
- const host = window.location.hostname
-
- return host === "localhost" || host === "127.0.0.1" || host === "[::1]"
-}
-
-const getCameraErrorMessage = (
- error: unknown,
- options?: {
-  insecureContext?: boolean
- }
-) => {
- const name =
-  typeof error === "object" && error && "name" in error ? String(error.name) : ""
-
- if (name === "NotAllowedError") {
-  if (options?.insecureContext) {
-   return "Camera access is blocked because this page is not running on HTTPS. Open the kiosk on HTTPS and try again."
-  }
-
-  return "Camera permission was denied. Allow camera access and try again."
- }
-
- if (name === "NotFoundError") {
-  return "No camera was found on this device."
- }
-
- if (name === "NotReadableError") {
-  return "The camera is already being used by another app."
- }
-
- if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
-  return "This camera mode is not supported on this device. Please retry."
- }
-
- if (name === "SecurityError") {
-  return "Camera access is blocked in this browser context. Open the kiosk on HTTPS and retry."
- }
-
- return "Could not open the camera on this browser. Try gallery instead."
-}
 
 export default function ReviewScreen() {
 
  const navigate = useNavigate()
  const data = useUserStore()
  const staffUser = useAuthStore((state) => state.user)
- const { isMobile, isCompactHeight } = useDevice()
+ const { isMobile, isTablet, isPortrait, isCompactHeight, viewportWidth } = useDevice()
+
+ // Treat iPad-sized viewports (>= 768px) like desktop so buttons stay compact.
+ // Fallback behavior:
+ // - viewportWidth >= 768 => 3 columns (compact row)
+ // - otherwise mobile: 1 column; tablet landscape: 2 columns
+ const actionGridColumns = viewportWidth >= 768
+  ? "repeat(3, 1fr)"
+  : isMobile
+  ? "1fr"
+  : isTablet
+   ? isPortrait
+    ? "1fr"
+    : "repeat(2, 1fr)"
+   : "repeat(3, 1fr)"
  const isEnquiryFlow = data.purpose === "enquiry"
+ const [savingEnquiry, setSavingEnquiry] = useState(false)
+ const [enquiryChoice, setEnquiryChoice] = useState<"followup" | "trial" | "enroll" | null>(null)
+
+ // When enquiry user picks trial/enroll, drive UI from enquiryChoice until they confirm
+ const effectivePurpose = isEnquiryFlow && enquiryChoice === "trial"
+  ? "trial"
+  : isEnquiryFlow && enquiryChoice === "enroll"
+   ? "enroll"
+   : data.purpose
+
  const isBookingFlow =
-  data.purpose === "trial" || data.purpose === "enroll" || data.purpose === "renew"
- const isTrialBooking = data.purpose === "trial"
+  effectivePurpose === "trial" || effectivePurpose === "enroll" || effectivePurpose === "renew"
+ const isTrialBooking = effectivePurpose === "trial"
  const isPersonalTraining = isPersonalTrainingLabel(data.program) || isPersonalTrainingLabel(data.exerciseType)
  const bookingCardTitle =
-  data.purpose === "trial"
+  effectivePurpose === "trial"
    ? "Trial Booking"
-   : data.purpose === "enroll"
+   : effectivePurpose === "enroll"
     ? "Joining Schedule"
-    : data.purpose === "renew"
+    : effectivePurpose === "renew"
      ? "Renewal Schedule"
    : "Booking Schedule"
  const { adultPlans, kidsPlans } = usePlanCatalog()
- const [savingEnquiry, setSavingEnquiry] = useState(false)
  const [bookingError, setBookingError] = useState("")
  const [saveError, setSaveError] = useState("")
  const [photoError, setPhotoError] = useState("")
  const [photoStatusMessage, setPhotoStatusMessage] = useState("")
- const [cameraOpen, setCameraOpen] = useState(false)
- const [cameraReady, setCameraReady] = useState(false)
- const [cameraLoading, setCameraLoading] = useState(false)
  const [photoUploading, setPhotoUploading] = useState(false)
  const [pendingPhotoBlob, setPendingPhotoBlob] = useState<Blob | null>(null)
  const [pendingPhotoSource, setPendingPhotoSource] = useState<ProfilePhotoSource>("camera")
@@ -219,12 +101,16 @@ export default function ReviewScreen() {
  const [partialEnabled, setPartialEnabled] = useState(false)
  const [partialInput, setPartialInput] = useState("")
  const [partialError, setPartialError] = useState("")
+ const [splitEnabled, setSplitEnabled] = useState(false)
+ const [splitMethod1, setSplitMethod1] = useState("")
+ const [splitAmount1Input, setSplitAmount1Input] = useState("")
+ const [splitError, setSplitError] = useState("")
+ const [partialDueDate, setPartialDueDate] = useState("")
+ const cameraInputRef = useRef<HTMLInputElement | null>(null)
  const galleryInputRef = useRef<HTMLInputElement | null>(null)
- const videoRef = useRef<HTMLVideoElement | null>(null)
- const streamRef = useRef<MediaStream | null>(null)
  const previewUrlRef = useRef<string | null>(null)
- const trialCreditApplied = data.cameFromTrial && data.purpose === "enroll"
-const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(0, data.price - TRIAL_FEE) : data.price
+ const trialCreditApplied = data.cameFromTrial && effectivePurpose === "enroll"
+ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(0, data.price - TRIAL_FEE) : data.price
  const followUpMinDate = useMemo(() => toDateInputValue(startOfDay()), [])
 
  const plans = data.age !== null && data.age <= 12 ? kidsPlans : adultPlans
@@ -250,6 +136,10 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
   data.mainPlanPrice ||
   selectedMainPricing?.price ||
   (isTrialBooking ? TRIAL_FEE : Math.max((data.price || 0) - addonTotal, 0))
+ const mainPlanOriginalPrice =
+  data.mainPlanOriginalPrice ||
+  ("originalPrice" in (selectedMainPricing ?? {}) ? (selectedMainPricing as { originalPrice?: number }).originalPrice : undefined) ||
+  0
  const resolvedTimings = useMemo(() => selectedPlan?.timings ?? [], [selectedPlan?.timings])
  const scheduleDays = useMemo(() => selectedPlan?.scheduleDays ?? [], [selectedPlan?.scheduleDays])
  const schedulePeriodOptions = getSchedulePeriodOptions(resolvedTimings)
@@ -276,41 +166,45 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
    return []
   }
 
-  const count = data.purpose === "trial" ? 10 : 14
+  const count = effectivePurpose === "trial" ? 40 : 14
 
   if (scheduleDays.length > 0) {
    return getUpcomingScheduleDatesForDays(scheduleDays, count)
   }
 
   return getUpcomingScheduleDates(count)
- }, [data.purpose, isBookingFlow, scheduleDays])
+ }, [effectivePurpose, isBookingFlow, scheduleDays])
  const trialDateOptions = useMemo<DialogDateOption[]>(
   () =>
-   bookingDateOptions.map((option, index) => ({
-    ...option,
-    disabled: bookingTimeSlotOptions.length === 0,
-    description:
-     bookingTimeSlotOptions.length > 0
-      ? index === 0
-       ? `${bookingTimeSlotOptions.length} slots · soonest`
-       : `${bookingTimeSlotOptions.length} slots`
-      : "No slots"
-   })),
+   bookingDateOptions
+    .filter((option) => isTrialBookingDateAllowed(option.value))
+    .slice(0, 10)
+    .map((option, index) => ({
+     ...option,
+     disabled: bookingTimeSlotOptions.length === 0,
+     description:
+      bookingTimeSlotOptions.length > 0
+       ? index === 0
+        ? `${bookingTimeSlotOptions.length} slots · soonest`
+        : `${bookingTimeSlotOptions.length} slots`
+       : "No slots"
+    })),
   [bookingDateOptions, bookingTimeSlotOptions.length]
  )
- const heroMomentLabel = isEnquiryFlow
+ const heroMomentLabel = isEnquiryFlow && !enquiryChoice
   ? "Follow-up"
-  : data.purpose === "trial"
+  : effectivePurpose === "trial"
    ? "Trial Booking"
-   : data.purpose === "enroll"
+   : effectivePurpose === "enroll"
     ? "Joining"
-    : data.purpose === "renew"
+    : effectivePurpose === "renew"
      ? "Renewal"
      : "Schedule"
- const heroMomentValue = isEnquiryFlow
-  ? formatScheduleMoment(data.followUpDate, data.followUpTime)
-  : formatScheduleMoment(data.batchDate, data.batchTime)
- const shouldShowProfilePhotoOnReview = data.purpose === "enroll" && data.status !== "new"
+ const heroMomentValue =
+  isEnquiryFlow && enquiryChoice !== "trial" && enquiryChoice !== "enroll"
+   ? formatScheduleMoment(data.followUpDate, data.followUpTime)
+   : formatScheduleMoment(data.batchDate, data.batchTime)
+ const shouldShowProfilePhotoOnReview = effectivePurpose === "enroll" && data.status !== "new"
  const hasSavedProfilePhoto = Boolean(data.profilePhotoUrl || data.profilePhotoStoragePath)
  const displayPhotoUrl = draftPreviewUrl || data.profilePhotoUrl
 
@@ -321,23 +215,10 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
   }
  }, [])
 
- const stopCamera = useCallback(() => {
-  streamRef.current?.getTracks().forEach((track) => track.stop())
-  streamRef.current = null
-
-  if (videoRef.current) {
-   videoRef.current.srcObject = null
-  }
-
-  setCameraOpen(false)
-  setCameraReady(false)
- }, [])
-
  useEffect(() => {
   if (!shouldShowProfilePhotoOnReview) {
    setPhotoError("")
    setPhotoStatusMessage("")
-   stopCamera()
    return
   }
 
@@ -346,48 +227,13 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
   } else if (!hasSavedProfilePhoto && !draftPreviewUrl) {
    setPhotoStatusMessage("Profile photo is optional here. Add one now or continue to payment.")
   }
- }, [draftPreviewUrl, hasSavedProfilePhoto, shouldShowProfilePhotoOnReview, stopCamera])
-
- useEffect(() => {
-  if (!cameraOpen || !videoRef.current || !streamRef.current) {
-   return
-  }
-
- const videoElement = videoRef.current
- videoElement.srcObject = streamRef.current
- const markReady = () => setCameraReady(true)
-
- videoElement.addEventListener("loadedmetadata", markReady)
- videoElement.addEventListener("loadeddata", markReady)
- videoElement.addEventListener("canplay", markReady)
-
- if (videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-  markReady()
- }
-
- void videoElement.play().then(() => {
-  if (videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-   markReady()
-  }
- }).catch(() => {
-  setPhotoError("Could not start the live camera preview. Try gallery instead.")
-  setPhotoStatusMessage("Camera preview failed. Try camera again or choose gallery.")
-  stopCamera()
- })
-
- return () => {
-  videoElement.removeEventListener("loadedmetadata", markReady)
-  videoElement.removeEventListener("loadeddata", markReady)
-  videoElement.removeEventListener("canplay", markReady)
- }
- }, [cameraOpen, stopCamera])
+ }, [draftPreviewUrl, hasSavedProfilePhoto, shouldShowProfilePhotoOnReview])
 
  useEffect(() => {
   return () => {
-   stopCamera()
    releaseDraftPreview()
   }
- }, [releaseDraftPreview, stopCamera])
+ }, [releaseDraftPreview])
 
  const goToDetails = () => navigate("/user-details")
  const goToTraining = () => navigate("/user-details")
@@ -406,6 +252,7 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
    duration: firstPricing?.duration || "",
    price: firstPricing?.price || 0,
    mainPlanPrice: firstPricing?.price || 0,
+   mainPlanOriginalPrice: firstPricing?.originalPrice ?? 0,
    batchType: firstBatchType,
    batchTime: firstBatchTime,
    selectedAddOnIds: [],
@@ -421,6 +268,7 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
    duration: pricing.duration,
    price: pricing.price,
    mainPlanPrice: pricing.price,
+   mainPlanOriginalPrice: pricing.originalPrice ?? 0,
    selectedAddOnIds: [],
    batchDate: ""
   })
@@ -514,62 +362,12 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
   }
  }
 
- const handleOpenCamera = async () => {
-  if (!hasSecureCameraContext()) {
-   setPhotoError("Camera needs a secure context. Open this kiosk over HTTPS and retry.")
-   setPhotoStatusMessage("Camera unavailable on non-HTTPS page. Use gallery or switch to HTTPS.")
-   return
-  }
-
-  if (!navigator.mediaDevices?.getUserMedia) {
-   setPhotoError("This browser does not support camera access. Use gallery instead.")
-   setPhotoStatusMessage("Camera is not supported on this browser. Use gallery upload.")
-   return
-  }
-
-  try {
-   setCameraLoading(true)
-   setPhotoError("")
-   setPhotoStatusMessage("Opening camera...")
-   stopCamera()
-   setCameraReady(false)
-
-   let stream: MediaStream | null = null
-   let lastError: unknown = null
-
-   for (const constraints of cameraConstraintAttempts) {
-    try {
-     stream = await navigator.mediaDevices.getUserMedia(constraints)
-     break
-    } catch (attemptError) {
-     lastError = attemptError
-    }
-   }
-
-   if (!stream) {
-    throw lastError
-   }
-
-   const hasVideoTrack = stream.getVideoTracks().length > 0
-
-   if (!hasVideoTrack) {
-    stream.getTracks().forEach((track) => track.stop())
-    throw new Error("Could not find a usable camera stream.")
-   }
-
-   streamRef.current = stream
-   setCameraOpen(true)
-   setPhotoStatusMessage("Camera ready. Align the face and capture.")
-  } catch (error) {
-   const insecureContext = !hasSecureCameraContext()
-   setPhotoError(getCameraErrorMessage(error, { insecureContext }))
-   setPhotoStatusMessage("Could not open camera. Retry or use gallery.")
-  } finally {
-   setCameraLoading(false)
-  }
+ const handleSelectTakePhoto = () => {
+  setPhotoError("")
+  cameraInputRef.current?.click()
  }
 
- const handleGalleryFile = async (file?: File | null) => {
+ const handlePhotoFile = async (file: File | null | undefined, source: ProfilePhotoSource) => {
   if (!file) {
    return
   }
@@ -579,41 +377,22 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
    return
   }
 
-  releaseDraftPreview()
-  const objectUrl = URL.createObjectURL(file)
-  previewUrlRef.current = objectUrl
-  setDraftPreviewUrl(objectUrl)
-  setPendingPhotoBlob(file)
-  setPendingPhotoSource("gallery")
-  setPendingPhotoFileName(file.name || PROFILE_PHOTO_FILE_NAME)
-  void uploadPhoto(file, "gallery", file.name || PROFILE_PHOTO_FILE_NAME)
- }
-
- const handleCapturePhoto = async () => {
-  if (!videoRef.current) {
-   setPhotoError("Camera preview is not ready yet.")
-   return
-  }
-
   try {
-   setCameraLoading(true)
    setPhotoError("")
-   const blob = await captureFrameFromVideo(videoRef.current)
-   stopCamera()
+   setPhotoStatusMessage(source === "camera" ? "Optimizing captured photo..." : "Optimizing selected photo...")
+   const optimizedBlob = await optimizeProfilePhotoBlob(file)
 
    releaseDraftPreview()
-   const objectUrl = URL.createObjectURL(blob)
+   const objectUrl = URL.createObjectURL(optimizedBlob)
    previewUrlRef.current = objectUrl
    setDraftPreviewUrl(objectUrl)
-   setPendingPhotoBlob(blob)
-   setPendingPhotoSource("camera")
+   setPendingPhotoBlob(optimizedBlob)
+   setPendingPhotoSource(source)
    setPendingPhotoFileName(PROFILE_PHOTO_FILE_NAME)
-   void uploadPhoto(blob, "camera", PROFILE_PHOTO_FILE_NAME)
+   void uploadPhoto(optimizedBlob, source, PROFILE_PHOTO_FILE_NAME)
   } catch (error) {
-   setPhotoError(error instanceof Error ? error.message : "Could not capture the photo.")
-   setPhotoStatusMessage("Capture failed. Please retry.")
-  } finally {
-   setCameraLoading(false)
+   setPhotoError(error instanceof Error ? error.message : "Could not process the selected photo.")
+   setPhotoStatusMessage("Please choose another image or try again.")
   }
  }
 
@@ -628,7 +407,11 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
 
  const handleContinue = () => {
   if (isEnquiryFlow) {
-   void handleFinishEnquiry()
+   if (enquiryChoice === "trial" || enquiryChoice === "enroll") {
+    handleProceedFromEnquiry()
+   } else {
+    void handleFinishEnquiry()
+   }
    return
   }
 
@@ -647,9 +430,51 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
     setBookingError("Please select a booking date.")
     return
    }
+
+   if (isTrialBooking && !isTrialBookingDateAllowed(data.batchDate)) {
+    setBookingError("Trial booking is not available on Wednesday, Saturday, or Sunday.")
+    return
+   }
   }
 
-  if (partialEnabled) {
+  if (splitEnabled) {
+   const parsedSplit = parseInt(splitAmount1Input, 10)
+
+   if (!splitMethod1) {
+    setSplitError("Please select the first payment method.")
+    return
+   }
+
+   if (!splitAmount1Input || isNaN(parsedSplit) || parsedSplit <= 0) {
+    setSplitError("Enter a valid amount for the first payment method.")
+    return
+   }
+
+   if (parsedSplit >= bookingPrice) {
+    setSplitError("First amount must be less than the total. Use full payment for a single method.")
+    return
+   }
+
+   const split1Surcharge = getPaymentSurchargeAmount(parsedSplit, splitMethod1 as Parameters<typeof getPaymentSurchargeAmount>[1])
+   const split2Amount = bookingPrice - parsedSplit
+
+   data.setData({
+    price: bookingPrice,
+    isSplitPayment: true,
+    isPartialPayment: false,
+    partialPaymentDueDate: "",
+    paidAmount: parsedSplit,
+    dueAmount: split2Amount,
+    paymentMethod1: splitMethod1 as Parameters<typeof getPaymentSurchargeAmount>[1],
+    paymentMethod2: "",
+    paymentCollectionStep: 1,
+    paymentSurchargeAmount: split1Surcharge,
+    paymentTotalAmount: bookingPrice + split1Surcharge,
+    paymentReference: "",
+    paymentMethod: "",
+    paymentStatus: ""
+   })
+  } else if (partialEnabled) {
    const parsed = parseInt(partialInput, 10)
 
    if (!partialInput || isNaN(parsed) || parsed <= 0) {
@@ -665,6 +490,8 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
    data.setData({
     price: bookingPrice,
     isPartialPayment: true,
+    isSplitPayment: false,
+    partialPaymentDueDate: partialDueDate,
     paidAmount: parsed,
     dueAmount: bookingPrice - parsed,
     paymentCollectionStep: 1,
@@ -680,6 +507,159 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
    data.setData({
     price: bookingPrice,
     isPartialPayment: false,
+    isSplitPayment: false,
+    partialPaymentDueDate: "",
+    paidAmount: 0,
+    dueAmount: 0,
+    paymentCollectionStep: 1,
+    paymentMethod1: "",
+    paymentMethod2: "",
+    paymentSurchargeAmount: 0,
+    paymentTotalAmount: bookingPrice,
+    paymentReference: "",
+    paymentMethod: "",
+    paymentStatus: ""
+   })
+  }
+
+  data.clearConsentSigning()
+  navigate("/payment")
+ }
+
+ const saveEnquiryData = async () => {
+  await saveEnquirySubmission({
+   name: data.name,
+   phone: data.phone,
+   countryCode: data.countryCode,
+   dateOfBirth: data.dateOfBirth,
+   lookingFor: data.lookingFor,
+   referenceSource: data.referenceSource,
+   age: data.age,
+   gender: data.gender,
+   primaryGoal: data.primaryGoal,
+   enquiryMessage: data.enquiryMessage,
+   experience: data.experience,
+   priorExerciseExperience: data.priorExerciseExperience,
+   priorExerciseActivity: data.priorExerciseActivity,
+   priorExerciseDuration: data.priorExerciseDuration,
+   lastExerciseTime: data.lastExerciseTime,
+   injury: data.injury,
+   injuryDetails: data.injuryDetails,
+   exerciseType: data.exerciseType,
+   program: data.program,
+   days: data.days,
+   duration: data.duration,
+   batchType: data.batchType,
+   batchTime: data.batchTime,
+   batchDate: data.batchDate,
+   followUpDate: data.followUpDate,
+   followUpTime: data.followUpTime,
+   price: data.price,
+   staffUser
+  })
+ }
+
+ const handleProceedFromEnquiry = () => {
+  if (!enquiryChoice || enquiryChoice === "followup") return
+
+  if (enquiryChoice === "trial") {
+   if (!data.batchDate) {
+    setBookingError("Please select a trial booking date.")
+    return
+   }
+   if (!isTrialBookingDateAllowed(data.batchDate)) {
+    setBookingError("Trial booking is not available on Wednesday, Saturday, or Sunday.")
+    return
+   }
+   data.setData({
+    purpose: "trial",
+    duration: "1 Day",
+    price: TRIAL_FEE,
+    mainPlanPrice: TRIAL_FEE,
+    mainPlanOriginalPrice: 0,
+    selectedAddOnIds: [],
+    isPartialPayment: false,
+    isSplitPayment: false,
+    partialPaymentDueDate: "",
+    paidAmount: 0,
+    dueAmount: 0,
+    paymentCollectionStep: 1,
+    paymentMethod1: "",
+    paymentMethod2: "",
+    paymentSurchargeAmount: 0,
+    paymentTotalAmount: TRIAL_FEE,
+    paymentReference: "",
+    paymentMethod: "",
+    paymentStatus: ""
+   })
+   data.clearConsentSigning()
+   navigate("/payment")
+   return
+  }
+
+  // enroll
+  if (isPersonalTraining && !data.batchTime) {
+   setBookingError("Please select a booking time.")
+   return
+  }
+
+  if (!data.batchDate) {
+   setBookingError("Please select a joining date.")
+   return
+  }
+
+  if (splitEnabled) {
+   const parsedSplit = parseInt(splitAmount1Input, 10)
+   if (!splitMethod1) { setSplitError("Please select the first payment method."); return }
+   if (!splitAmount1Input || isNaN(parsedSplit) || parsedSplit <= 0) { setSplitError("Enter a valid amount for the first payment method."); return }
+   if (parsedSplit >= bookingPrice) { setSplitError("First amount must be less than the total. Use full payment for a single method."); return }
+   const split1Surcharge = getPaymentSurchargeAmount(parsedSplit, splitMethod1 as Parameters<typeof getPaymentSurchargeAmount>[1])
+   const split2Amount = bookingPrice - parsedSplit
+   data.setData({
+    purpose: "enroll",
+    price: bookingPrice,
+    isSplitPayment: true,
+    isPartialPayment: false,
+    partialPaymentDueDate: "",
+    paidAmount: parsedSplit,
+    dueAmount: split2Amount,
+    paymentMethod1: splitMethod1 as Parameters<typeof getPaymentSurchargeAmount>[1],
+    paymentMethod2: "",
+    paymentCollectionStep: 1,
+    paymentSurchargeAmount: split1Surcharge,
+    paymentTotalAmount: bookingPrice + split1Surcharge,
+    paymentReference: "",
+    paymentMethod: "",
+    paymentStatus: ""
+   })
+  } else if (partialEnabled) {
+   const parsed = parseInt(partialInput, 10)
+   if (!partialInput || isNaN(parsed) || parsed <= 0) { setPartialError("Enter a valid partial amount."); return }
+   if (parsed >= bookingPrice) { setPartialError("Partial amount must be less than the total."); return }
+   data.setData({
+    purpose: "enroll",
+    price: bookingPrice,
+    isPartialPayment: true,
+    isSplitPayment: false,
+    partialPaymentDueDate: partialDueDate,
+    paidAmount: parsed,
+    dueAmount: bookingPrice - parsed,
+    paymentCollectionStep: 1,
+    paymentMethod1: "",
+    paymentMethod2: "",
+    paymentSurchargeAmount: 0,
+    paymentTotalAmount: bookingPrice,
+    paymentReference: "",
+    paymentMethod: "",
+    paymentStatus: ""
+   })
+  } else {
+   data.setData({
+    purpose: "enroll",
+    price: bookingPrice,
+    isPartialPayment: false,
+    isSplitPayment: false,
+    partialPaymentDueDate: "",
     paidAmount: 0,
     dueAmount: 0,
     paymentCollectionStep: 1,
@@ -784,7 +764,17 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
      {renderTile("Program", data.program || "-")}
      {renderTile("Plan", data.duration || "-")}
      {renderTile(heroMomentLabel, heroMomentValue, true)}
-     {renderTile("Price", bookingPrice ? `₹${bookingPrice}` : "-")}
+     <div style={styles.detailTile}>
+      <p style={styles.detailLabel}>Price</p>
+      <p style={styles.detailValue}>
+       {mainPlanOriginalPrice > mainPlanPrice && mainPlanOriginalPrice > 0 && (
+        <span style={{ fontSize: "12px", textDecoration: "line-through", textDecorationColor: "#E85A5A", textDecorationThickness: "1.5px", color: "#E85A5A", fontWeight: 400, display: "block" }}>
+         ₹{mainPlanOriginalPrice.toLocaleString("en-IN")}
+        </span>
+       )}
+       {bookingPrice ? `₹${bookingPrice.toLocaleString("en-IN")}` : "-"}
+      </p>
+     </div>
     </div>
 
      {isTrialBooking && (
@@ -879,6 +869,13 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
              key={plan.id}
              title={plan.name}
              subtitle={plan.pricing?.[0] ? `From ₹${plan.pricing[0].price.toLocaleString("en-IN")}` : plan.days || ""}
+             footer={
+              plan.pricing?.[0]?.originalPrice !== undefined && plan.pricing[0].originalPrice! > plan.pricing[0].price ? (
+               <p style={{ fontSize: "12px", textDecoration: "line-through", textDecorationColor: "#E85A5A", textDecorationThickness: "1.5px", color: "#E85A5A", marginTop: "6px" }}>
+                MRP ₹{plan.pricing[0].originalPrice!.toLocaleString("en-IN")}
+               </p>
+              ) : undefined
+             }
              selected={matchesLabel(plan.name, data.program)}
              badgeLabel={matchesLabel(plan.name, data.program) ? "Current" : "Select"}
              centered={false}
@@ -904,13 +901,24 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
          </div>
          {expandedEditor === "duration" && selectedPlan?.pricing && (
           <div style={styles.inlineOptions}>
-           {selectedPlan.pricing
+           {[...selectedPlan.pricing]
+            .sort((a, b) => {
+             const order: Record<string, number> = { "1 Day": 0, "1 Session": 1, "Free Trial": 2, "1 Week": 3, "Monthly": 4, "Quarterly": 5, "Half Yearly": 6, "Yearly": 7 }
+             return (order[a.duration] ?? 99) - (order[b.duration] ?? 99)
+            })
             .filter((p) => p.duration !== "1 Day")
             .map((pricing, index) => (
              <ChoiceCard
               key={pricing.duration}
               title={pricing.duration}
               subtitle={`₹${pricing.price.toLocaleString("en-IN")}`}
+              footer={
+               pricing.originalPrice !== undefined && pricing.originalPrice > pricing.price ? (
+                <p style={{ fontSize: "12px", textDecoration: "line-through", textDecorationColor: "#E85A5A", textDecorationThickness: "1.5px", color: "#E85A5A", marginTop: "6px" }}>
+                 MRP ₹{pricing.originalPrice.toLocaleString("en-IN")}
+                </p>
+               ) : undefined
+              }
               selected={data.duration === pricing.duration}
               badgeLabel={data.duration === pricing.duration ? "Current" : index === 0 ? "Popular" : "Pick"}
               centered={false}
@@ -983,7 +991,17 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
 
         {/* Read-only summary tiles */}
         <div style={styles.detailGrid(isMobile)}>
-         {renderTile("Price", data.price ? `₹${data.price.toLocaleString("en-IN")}` : "-")}
+         <div style={styles.detailTile}>
+          <p style={styles.detailLabel}>Price</p>
+          <p style={styles.detailValue}>
+           {mainPlanOriginalPrice > mainPlanPrice && mainPlanOriginalPrice > 0 && (
+            <span style={{ fontSize: "12px", textDecoration: "line-through", textDecorationColor: "#E85A5A", textDecorationThickness: "1.5px", color: "#E85A5A", fontWeight: 400, display: "block" }}>
+             ₹{mainPlanOriginalPrice.toLocaleString("en-IN")}
+            </span>
+           )}
+           {data.price ? `₹${data.price.toLocaleString("en-IN")}` : "-"}
+          </p>
+         </div>
          {renderTile("Days", data.days || "-")}
         </div>
        </div>
@@ -993,7 +1011,17 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
         {renderTile("Plan Duration", data.duration || "-")}
         {renderTile("Batch Type", data.batchType || "-")}
         {renderTile("Batch Time", data.batchTime || "-")}
-        {renderTile("Price", data.price ? `₹${data.price}` : "-")}
+        <div style={styles.detailTile}>
+         <p style={styles.detailLabel}>Price</p>
+         <p style={styles.detailValue}>
+          {mainPlanOriginalPrice > mainPlanPrice && mainPlanOriginalPrice > 0 && (
+           <span style={{ fontSize: "12px", textDecoration: "line-through", textDecorationColor: "#E85A5A", textDecorationThickness: "1.5px", color: "#E85A5A", fontWeight: 400, display: "block" }}>
+            ₹{mainPlanOriginalPrice.toLocaleString("en-IN")}
+           </span>
+          )}
+          {data.price ? `₹${data.price.toLocaleString("en-IN")}` : "-"}
+         </p>
+        </div>
         {renderTile("Days", data.days || "-")}
        </div>
       )}
@@ -1015,11 +1043,11 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
        <div style={styles.photoCaptureLayout(isMobile)}>
         <div style={styles.photoPreviewCard}>
          {displayPhotoUrl ? (
-          <img src={displayPhotoUrl} alt="Member profile preview" style={styles.photoPreviewImage} />
-         ) : (
-          <div style={styles.photoPreviewPlaceholder}>
-           <span style={styles.photoPlaceholderBadge}>No Photo</span>
-           <p style={styles.photoPlaceholderText}>Open camera or choose gallery to capture client photo.</p>
+         <img src={displayPhotoUrl} alt="Member profile preview" style={styles.photoPreviewImage} />
+        ) : (
+         <div style={styles.photoPreviewPlaceholder}>
+          <span style={styles.photoPlaceholderBadge}>No Photo</span>
+           <p style={styles.photoPlaceholderText}>Use Take Photo or Choose Gallery to capture client photo.</p>
           </div>
          )}
         </div>
@@ -1028,22 +1056,20 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
          <div style={styles.photoActionRow}>
           <button
            type="button"
-           onClick={() => {
-            void handleOpenCamera()
-           }}
+           onClick={handleSelectTakePhoto}
            style={styles.photoSecondaryButton}
-           disabled={cameraLoading || photoUploading || cameraOpen}
+           disabled={photoUploading}
           >
-           {cameraLoading && !cameraOpen ? "Opening..." : photoUploading ? "Uploading..." : "Open Camera"}
+           {photoUploading ? "Uploading..." : "Take Photo"}
           </button>
 
           <button
            type="button"
            onClick={() => {
-            galleryInputRef.current?.click()
+             galleryInputRef.current?.click()
            }}
            style={styles.photoSecondaryButton}
-           disabled={cameraLoading || photoUploading}
+           disabled={photoUploading}
           >
            Choose Gallery
           </button>
@@ -1052,18 +1078,30 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
            type="button"
            onClick={handleRetryPhotoUpload}
            style={styles.photoTertiaryButton}
-           disabled={cameraLoading || photoUploading || !pendingPhotoBlob}
+           disabled={photoUploading || !pendingPhotoBlob}
           >
            Retry Upload
           </button>
          </div>
 
          <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="user"
+          onChange={(event) => {
+           void handlePhotoFile(event.target.files?.[0] || null, "camera")
+           event.currentTarget.value = ""
+          }}
+          style={{ display: "none" }}
+         />
+
+         <input
           ref={galleryInputRef}
           type="file"
           accept="image/*"
           onChange={(event) => {
-           void handleGalleryFile(event.target.files?.[0] || null)
+           void handlePhotoFile(event.target.files?.[0] || null, "gallery")
            event.currentTarget.value = ""
           }}
           style={{ display: "none" }}
@@ -1086,10 +1124,17 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
        </div>
 
        <div style={styles.breakdownCard}>
-        {buildPriceBreakdown("Main Plan", mainPlanPrice, selectedAddonPlans).map((item) => (
+        {buildPriceBreakdown("Main Plan", mainPlanPrice, selectedAddonPlans, mainPlanOriginalPrice).map((item) => (
          <div key={item.label} style={styles.breakdownRow}>
           <span style={styles.breakdownLabel}>{item.label}</span>
-          <span style={styles.breakdownValue}>₹{item.amount.toLocaleString("en-IN")}</span>
+          <span style={{ ...styles.breakdownValue, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" }}>
+           {item.originalAmount !== undefined && (
+            <span style={{ fontSize: "12px", textDecoration: "line-through", textDecorationColor: "#E85A5A", textDecorationThickness: "1.5px", color: "#E85A5A", fontWeight: 400 }}>
+             ₹{item.originalAmount.toLocaleString("en-IN")}
+            </span>
+           )}
+           ₹{item.amount.toLocaleString("en-IN")}
+          </span>
          </div>
         ))}
 
@@ -1119,64 +1164,112 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
         {!isTrialBooking && (
          <>
           <div style={styles.breakdownDivider} />
+
+          {/* Partial Payment */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>
            <span style={styles.breakdownLabel}>Partial Payment</span>
-           <button
-            type="button"
-            onClick={() => {
-             setPartialEnabled((prev) => !prev)
-             setPartialInput("")
-             setPartialError("")
-            }}
-            style={{
-             background: partialEnabled ? colors.primary : "rgba(255,255,255,0.08)",
-             border: "none",
-             borderRadius: "999px",
-             color: partialEnabled ? colors.textOnAccent : colors.textSecondary,
-             fontSize: "12px",
-             fontWeight: 700,
-             padding: "4px 14px",
-             cursor: "pointer"
-            }}
-           >
-            {partialEnabled ? "On" : "Off"}
-           </button>
+           <div style={{ display: "flex", gap: "6px" }}>
+            <button
+             type="button"
+             onClick={() => {
+              const next = !partialEnabled
+              setPartialEnabled(next)
+              setPartialInput("")
+              setPartialError("")
+              setPartialDueDate("")
+              if (next) { setSplitEnabled(false); setSplitMethod1(""); setSplitAmount1Input(""); setSplitError("") }
+             }}
+             style={{ background: partialEnabled ? colors.primary : "rgba(255,255,255,0.08)", border: "none", borderRadius: "999px", color: partialEnabled ? colors.textOnAccent : colors.textSecondary, fontSize: "12px", fontWeight: 700, padding: "4px 14px", cursor: "pointer" }}
+            >
+             {partialEnabled ? "On" : "Off"}
+            </button>
+           </div>
           </div>
 
           {partialEnabled && (
-           <div style={{ display: "flex", flexDirection: "column" as const, gap: "6px" }}>
+           <div style={{ display: "flex", flexDirection: "column" as const, gap: "8px" }}>
             <input
              type="number"
              min={1}
              max={bookingPrice - 1}
-             placeholder={`Enter partial amount (max ₹${bookingPrice - 1})`}
+             placeholder={`Collect now (max ₹${(bookingPrice - 1).toLocaleString("en-IN")})`}
              value={partialInput}
-             onChange={(e) => {
-              setPartialInput(e.target.value)
-              setPartialError("")
-             }}
-             style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: radius.md,
-              border: `1px solid ${partialError ? "#F1A596" : colors.border}`,
-              background: "rgba(255,255,255,0.06)",
-              color: colors.textPrimary,
-              fontSize: "15px",
-              boxSizing: "border-box" as const,
-             outline: "none"
-             }}
+             onChange={(e) => { setPartialInput(e.target.value); setPartialError("") }}
+             style={{ width: "100%", padding: "10px 12px", borderRadius: radius.md, border: `1px solid ${partialError ? "#F1A596" : colors.border}`, background: "rgba(255,255,255,0.06)", color: colors.textPrimary, fontSize: "16px", boxSizing: "border-box" as const, outline: "none" }}
             />
-            <p style={{ margin: 0, color: colors.textMuted, fontSize: "12px", lineHeight: 1.5 }}>
-             All payment methods support partial collection. Card and EMI methods add a 2% surcharge on the full plan amount.
-            </p>
+            <DialogDateField
+             label="Next Payment Due Date"
+             value={partialDueDate}
+             onChange={setPartialDueDate}
+             min={followUpMinDate}
+             helperText="When will the remaining amount be paid?"
+             pickerTitle="Select Due Date"
+             size="compact"
+            />
             {partialInput && !isNaN(parseInt(partialInput, 10)) && parseInt(partialInput, 10) > 0 && parseInt(partialInput, 10) < bookingPrice && (
              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", color: colors.textSecondary }}>
-              <span>Collect now: <b style={{ color: "#4ade80" }}>₹{parseInt(partialInput, 10).toLocaleString("en-IN")}</b></span>
-              <span>Base remaining: <b style={{ color: "#f59e0b" }}>₹{(bookingPrice - parseInt(partialInput, 10)).toLocaleString("en-IN")}</b></span>
+              <span>Now: <b style={{ color: "#4ade80" }}>₹{parseInt(partialInput, 10).toLocaleString("en-IN")}</b></span>
+              <span>Remaining: <b style={{ color: "#f59e0b" }}>₹{(bookingPrice - parseInt(partialInput, 10)).toLocaleString("en-IN")}</b></span>
              </div>
             )}
             {partialError && <p style={{ margin: 0, color: "#F1A596", fontSize: "13px" }}>{partialError}</p>}
+           </div>
+          )}
+
+          <div style={styles.breakdownDivider} />
+
+          {/* Split Payment (two modes) */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>
+           <span style={styles.breakdownLabel}>Split Payment (2 Modes)</span>
+           <button
+            type="button"
+            onClick={() => {
+             const next = !splitEnabled
+             setSplitEnabled(next)
+             setSplitMethod1("")
+             setSplitAmount1Input("")
+             setSplitError("")
+             if (next) { setPartialEnabled(false); setPartialInput(""); setPartialError(""); setPartialDueDate("") }
+            }}
+            style={{ background: splitEnabled ? colors.primary : "rgba(255,255,255,0.08)", border: "none", borderRadius: "999px", color: splitEnabled ? colors.textOnAccent : colors.textSecondary, fontSize: "12px", fontWeight: 700, padding: "4px 14px", cursor: "pointer" }}
+           >
+            {splitEnabled ? "On" : "Off"}
+           </button>
+          </div>
+
+          {splitEnabled && (
+           <div style={{ display: "flex", flexDirection: "column" as const, gap: "8px" }}>
+            <p style={{ margin: 0, color: colors.textMuted, fontSize: "12px", lineHeight: 1.5 }}>
+             Choose mode for the first portion. Remaining will be collected separately.
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap" as const, gap: "6px" }}>
+             {PAYMENT_METHOD_OPTIONS.map((m) => (
+              <button
+               key={m.value}
+               type="button"
+               onClick={() => { setSplitMethod1(m.value); setSplitError("") }}
+               style={{ padding: "6px 14px", borderRadius: "999px", border: `1px solid ${splitMethod1 === m.value ? colors.primaryLight : colors.borderStrong}`, background: splitMethod1 === m.value ? "linear-gradient(135deg, rgba(200,169,108,0.98), rgba(195,160,93,0.96))" : "rgba(255,255,255,0.04)", color: splitMethod1 === m.value ? colors.textOnAccent : colors.textSecondary, fontSize: "12px", fontWeight: 700, cursor: "pointer" }}
+              >
+               {m.title}
+              </button>
+             ))}
+            </div>
+            <input
+             type="number"
+             min={1}
+             max={bookingPrice - 1}
+             placeholder={`Amount for ${splitMethod1 ? PAYMENT_METHOD_OPTIONS.find(m => m.value === splitMethod1)?.title : "Mode 1"} (max ₹${(bookingPrice - 1).toLocaleString("en-IN")})`}
+             value={splitAmount1Input}
+             onChange={(e) => { setSplitAmount1Input(e.target.value); setSplitError("") }}
+             style={{ width: "100%", padding: "10px 12px", borderRadius: radius.md, border: `1px solid ${splitError ? "#F1A596" : colors.border}`, background: "rgba(255,255,255,0.06)", color: colors.textPrimary, fontSize: "16px", boxSizing: "border-box" as const, outline: "none" }}
+            />
+            {splitAmount1Input && !isNaN(parseInt(splitAmount1Input, 10)) && parseInt(splitAmount1Input, 10) > 0 && parseInt(splitAmount1Input, 10) < bookingPrice && (
+             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", color: colors.textSecondary }}>
+              <span>{splitMethod1 ? PAYMENT_METHOD_OPTIONS.find(m => m.value === splitMethod1)?.title : "Mode 1"}: <b style={{ color: "#4ade80" }}>₹{parseInt(splitAmount1Input, 10).toLocaleString("en-IN")}</b></span>
+              <span>Remaining Mode: <b style={{ color: "#f59e0b" }}>₹{(bookingPrice - parseInt(splitAmount1Input, 10)).toLocaleString("en-IN")}</b></span>
+             </div>
+            )}
+            {splitError && <p style={{ margin: 0, color: "#F1A596", fontSize: "13px" }}>{splitError}</p>}
            </div>
           )}
          </>
@@ -1195,7 +1288,7 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
       </div>
 
        <div style={styles.followUpGrid(isMobile)}>
-        {data.purpose === "trial" ? (
+        {effectivePurpose === "trial" ? (
          <DialogDateField
           label="Trial Booking Date"
           value={data.batchDate}
@@ -1212,7 +1305,7 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
          />
         ) : (
          <DialogDateField
-          label={data.purpose === "enroll" ? "Joining Date" : "Renewal Date"}
+          label={effectivePurpose === "enroll" ? "Joining Date" : "Renewal Date"}
           value={data.batchDate}
           onChange={(value) => {
            setBookingError("")
@@ -1220,12 +1313,12 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
           }}
           min={followUpMinDate}
           helperText={
-           data.purpose === "enroll"
+           effectivePurpose === "enroll"
             ? "Open the picker and confirm the joining date."
             : "Open the picker and confirm the renewal date."
           }
-          error={bookingError && !data.batchDate && data.purpose !== "renew" ? bookingError : ""}
-          pickerTitle={data.purpose === "enroll" ? "Select Joining Date" : "Select Renewal Date"}
+          error={bookingError && !data.batchDate && effectivePurpose !== "renew" ? bookingError : ""}
+          pickerTitle={effectivePurpose === "enroll" ? "Select Joining Date" : "Select Renewal Date"}
           size="compact"
          />
         )}
@@ -1233,9 +1326,9 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
         {isPersonalTraining && (
          <DialogTimeField
           label={
-           data.purpose === "trial"
+           effectivePurpose === "trial"
             ? "Trial Booking Time"
-            : data.purpose === "enroll"
+            : effectivePurpose === "enroll"
              ? "Joining Time"
              : "Renewal Time"
           }
@@ -1253,9 +1346,9 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
           allowCustom
           emptyMessage="No booking times are available for this plan."
           pickerTitle={
-           data.purpose === "trial"
+           effectivePurpose === "trial"
             ? "Select Trial Time"
-            : data.purpose === "enroll"
+            : effectivePurpose === "enroll"
              ? "Select Joining Time"
              : "Select Renewal Time"
           }
@@ -1267,7 +1360,7 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
       </div>
      )}
 
-     {isEnquiryFlow && (
+     {isEnquiryFlow && enquiryChoice === "followup" && (
       <div style={styles.sectionCard(isMobile, isCompactHeight)}>
      <div style={styles.sectionHeader}>
       <div>
@@ -1303,73 +1396,92 @@ const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(
      )}
     </div>
 
-    <div style={styles.actionCard}>
-     <div style={styles.actionCopy}>
-      <p style={styles.actionKicker}>
-       {isEnquiryFlow ? "Finish enquiry" : "Continue to payment"}
-      </p>
-     </div>
-
-     <div style={styles.actionButtonWrap}>
-      <PrimaryButton
-       title={
-        isEnquiryFlow
-         ? savingEnquiry
-          ? "Saving..."
-          : "Finish"
-         : "Proceed to Payment"
-       }
-       onClick={handleContinue}
-       disabled={savingEnquiry || (shouldShowProfilePhotoOnReview && photoUploading)}
-       fullWidth
-      />
-     </div>
-    </div>
-
-    {cameraOpen && (
-     <div style={styles.cameraOverlay}>
-      <div style={styles.cameraCard}>
-       <p style={styles.cameraTitle}>Capture Profile Photo</p>
-
-       <div style={styles.cameraViewport}>
-        <video
-         ref={videoRef}
-         autoPlay
-         playsInline
-         muted
-         onLoadedMetadata={() => {
-          setCameraReady(true)
-         }}
-         style={styles.cameraVideo}
+    {isEnquiryFlow ? (
+     <div style={{ ...styles.actionCard, flexDirection: "column" as const, alignItems: "stretch" }}>
+      <p style={styles.actionKicker}>What would you like to do next?</p>
+      <div style={{ display: "grid", gridTemplateColumns: actionGridColumns, gap: "10px", marginTop: "10px", gridAutoRows: "min-content", alignItems: "center" }}>
+       <button
+        type="button"
+        disabled={savingEnquiry}
+        onClick={() => setEnquiryChoice(enquiryChoice === "followup" ? null : "followup")}
+        style={{
+         minHeight: "48px",
+         alignSelf: "center",
+         borderRadius: "999px",
+         border: `1px solid ${enquiryChoice === "followup" ? colors.primaryLight : colors.borderStrong}`,
+         background: enquiryChoice === "followup" ? "linear-gradient(135deg, rgba(200,169,108,0.98), rgba(195,160,93,0.96))" : "rgba(255,255,255,0.04)",
+         color: enquiryChoice === "followup" ? colors.textOnAccent : colors.primaryLight,
+         fontSize: "12px", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" as const, cursor: "pointer"
+        }}
+       >
+        Follow Up
+       </button>
+       <button
+        type="button"
+        disabled={savingEnquiry}
+        onClick={() => { setEnquiryChoice(enquiryChoice === "trial" ? null : "trial"); setBookingError("") }}
+        style={{
+         minHeight: "48px",
+         alignSelf: "center",
+         borderRadius: "999px",
+         border: `1px solid ${enquiryChoice === "trial" ? colors.primaryLight : colors.borderStrong}`,
+         background: enquiryChoice === "trial" ? "linear-gradient(135deg, rgba(200,169,108,0.98), rgba(195,160,93,0.96))" : "rgba(255,255,255,0.04)",
+         color: enquiryChoice === "trial" ? colors.textOnAccent : colors.primaryLight,
+         fontSize: "12px", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" as const, cursor: "pointer"
+        }}
+       >
+        Book Trial
+       </button>
+       <button
+        type="button"
+        disabled={savingEnquiry}
+        onClick={() => { setEnquiryChoice(enquiryChoice === "enroll" ? null : "enroll"); setBookingError("") }}
+        style={{
+         minHeight: "48px",
+         alignSelf: "center",
+         borderRadius: "999px",
+         border: `1px solid ${enquiryChoice === "enroll" ? colors.primaryLight : colors.borderStrong}`,
+         background: enquiryChoice === "enroll" ? "linear-gradient(135deg, rgba(200,169,108,0.98), rgba(195,160,93,0.96))" : "rgba(255,255,255,0.04)",
+         color: enquiryChoice === "enroll" ? colors.textOnAccent : colors.primaryLight,
+         fontSize: "12px", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" as const, cursor: "pointer"
+        }}
+       >
+        Enrol
+       </button>
+      </div>
+      {enquiryChoice === "followup" && (
+       <div style={{ marginTop: "14px" }}>
+        <PrimaryButton
+         title={savingEnquiry ? "Saving..." : "Save Enquiry"}
+         onClick={handleContinue}
+         disabled={savingEnquiry}
+         fullWidth
         />
        </div>
-
-       <p style={styles.cameraHint}>
-        {cameraReady ? "Align the face and capture." : "Starting camera..."}
-       </p>
-
-       <div style={styles.cameraActionRow}>
-        <button
-         type="button"
-         onClick={() => {
-          stopCamera()
-         }}
-         style={styles.cameraSecondaryButton}
-        >
-         Cancel
-        </button>
-
-        <button
-         type="button"
-         onClick={() => {
-          void handleCapturePhoto()
-         }}
-         style={styles.cameraPrimaryButton}
-         disabled={!cameraReady || cameraLoading || photoUploading}
-        >
-         Capture
-        </button>
+      )}
+      {(enquiryChoice === "trial" || enquiryChoice === "enroll") && (
+       <div style={{ marginTop: "14px" }}>
+        <PrimaryButton
+         title={`Proceed to Payment`}
+         onClick={handleContinue}
+         fullWidth
+        />
        </div>
+      )}
+      {saveError && <p style={{ marginTop: "10px", color: "#F1A596", fontSize: "13px", textAlign: "center" as const }}>{saveError}</p>}
+     </div>
+    ) : (
+     <div style={styles.actionCard}>
+      <div style={styles.actionCopy}>
+       <p style={styles.actionKicker}>Continue to payment</p>
+      </div>
+      <div style={styles.actionButtonWrap}>
+       <PrimaryButton
+        title="Proceed to Payment"
+        onClick={handleContinue}
+        disabled={shouldShowProfilePhotoOnReview && photoUploading}
+        fullWidth
+       />
       </div>
      </div>
     )}
@@ -1744,80 +1856,6 @@ const styles = {
  actionButtonWrap: {
   flex: "0 0 auto",
   width: "min(100%, 280px)"
- },
- cameraOverlay: {
-  position: "fixed" as const,
-  inset: 0,
-  background: "rgba(4,11,16,0.9)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: spacing.lg,
-  zIndex: 1000
- },
- cameraCard: {
-  width: "min(100%, 460px)",
-  padding: spacing.lg,
-  borderRadius: radius.lg,
-  border: `1px solid ${colors.borderStrong}`,
-  background: "linear-gradient(160deg, rgba(17,28,35,0.98), rgba(8,15,20,0.98))",
-  boxShadow: "0 32px 120px rgba(0,0,0,0.45)"
- },
- cameraTitle: {
-  color: colors.textPrimary,
-  fontSize: "18px",
-  fontWeight: 800,
-  textAlign: "center" as const,
-  marginBottom: spacing.md
- },
- cameraViewport: {
-  width: "100%",
-  aspectRatio: "1 / 1",
-  borderRadius: radius.md,
-  overflow: "hidden",
-  border: `1px solid ${colors.border}`,
-  background: "#000"
- },
- cameraVideo: {
-  width: "100%",
-  height: "100%",
-  objectFit: "cover" as const
- },
- cameraHint: {
-  color: colors.textSecondary,
-  fontSize: "13px",
-  lineHeight: 1.5,
-  textAlign: "center" as const,
-  marginTop: spacing.md
- },
- cameraActionRow: {
-  display: "flex",
-  justifyContent: "center",
-  gap: spacing.sm,
-  flexWrap: "wrap" as const,
-  marginTop: spacing.md
- },
- cameraSecondaryButton: {
-  borderRadius: "999px",
-  border: `1px solid ${colors.border}`,
-  background: "rgba(255,255,255,0.04)",
-  color: colors.textPrimary,
-  padding: "10px 16px",
-  cursor: "pointer",
-  fontSize: "12px",
-  fontWeight: 700
- },
- cameraPrimaryButton: {
-  borderRadius: "999px",
-  border: "none",
-  background: colors.primary,
-  color: colors.textOnAccent,
-  padding: "10px 18px",
-  cursor: "pointer",
-  fontSize: "12px",
-  fontWeight: 800,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase" as const
  },
  saveError: {
   marginTop: spacing.md,

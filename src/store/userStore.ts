@@ -54,6 +54,7 @@ export interface UserState {
  days: string
  selectedAddOnIds: string[]
  mainPlanPrice: number
+ mainPlanOriginalPrice: number
 
  price: number
  duration: MembershipDuration
@@ -71,6 +72,8 @@ export interface UserState {
  paymentMethod: PaymentMethod
  paymentStatus: PaymentStatus
  isPartialPayment: boolean
+ partialPaymentDueDate: string
+ isSplitPayment: boolean
  paidAmount: number
  dueAmount: number
  paymentCollectionStep: 1 | 2
@@ -158,6 +161,7 @@ const initialState: UserStoreData = {
  days: "",
  selectedAddOnIds: [],
  mainPlanPrice: 0,
+ mainPlanOriginalPrice: 0,
 
  price: 0,
  duration: "",
@@ -175,6 +179,8 @@ const initialState: UserStoreData = {
  paymentMethod: "",
  paymentStatus: "",
  isPartialPayment: false,
+ partialPaymentDueDate: "",
+ isSplitPayment: false,
  paidAmount: 0,
  dueAmount: 0,
  paymentCollectionStep: 1,
@@ -305,7 +311,7 @@ export const useUserStore = create<UserState>()(
   }),
   {
    name: USER_FLOW_STORAGE_KEY,
-   version: 11,
+   version: 12,
    storage: safeSessionStorage,
    partialize: (state) => ({
     language: state.language,
@@ -339,6 +345,7 @@ export const useUserStore = create<UserState>()(
     days: state.days,
     selectedAddOnIds: state.selectedAddOnIds,
     mainPlanPrice: state.mainPlanPrice,
+    mainPlanOriginalPrice: state.mainPlanOriginalPrice,
     price: state.price,
     duration: state.duration,
     batchType: state.batchType,
@@ -353,6 +360,8 @@ export const useUserStore = create<UserState>()(
     paymentMethod: state.paymentMethod,
     paymentStatus: state.paymentStatus,
     isPartialPayment: state.isPartialPayment,
+    partialPaymentDueDate: state.partialPaymentDueDate,
+    isSplitPayment: state.isSplitPayment,
     paidAmount: state.paidAmount,
     dueAmount: state.dueAmount,
     paymentCollectionStep: state.paymentCollectionStep,

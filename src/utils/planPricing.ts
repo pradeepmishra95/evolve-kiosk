@@ -111,7 +111,8 @@ export const resolveAddonPlans = (
     name: plan.name,
     pricing: {
      duration: pricing.duration,
-     price: getAddonDiscountPrice(pricing.price)
+     price: getAddonDiscountPrice(pricing.price),
+     originalPrice: pricing.price
     }
    }
   })
@@ -120,15 +121,25 @@ export const resolveAddonPlans = (
 export const buildPriceBreakdown = (
  mainLabel: string,
  mainPrice: number,
- addons: ResolvedAddonPlan[]
+ addons: ResolvedAddonPlan[],
+ mainOriginalPrice?: number
 ): PriceBreakdownLine[] => {
- const lines: PriceBreakdownLine[] = [{ label: mainLabel, amount: mainPrice }]
+ const mainLine: PriceBreakdownLine = { label: mainLabel, amount: mainPrice }
+
+ if (mainOriginalPrice !== undefined && mainOriginalPrice > mainPrice) {
+  mainLine.originalAmount = mainOriginalPrice
+ }
+
+ const lines: PriceBreakdownLine[] = [mainLine]
 
  addons.forEach((addon) => {
-  lines.push({
-   label: addon.name,
-   amount: addon.pricing.price
-  })
+  const line: PriceBreakdownLine = { label: addon.name, amount: addon.pricing.price }
+
+  if (addon.pricing.originalPrice !== undefined && addon.pricing.originalPrice > addon.pricing.price) {
+   line.originalAmount = addon.pricing.originalPrice
+  }
+
+  lines.push(line)
  })
 
  return lines

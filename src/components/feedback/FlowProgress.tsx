@@ -49,7 +49,7 @@ const buildNewUserSteps = (state: FlowProgressContext): FlowStepDefinition[] => 
   { routes: ["/user-details"], label: "Details & Assessment" },
  ]
 
- if (state.purpose !== "enquiry") {
+ if (state.purpose === "enroll") {
   steps.push({ routes: ["/profile-photo"], label: "Profile Photo" })
  }
 

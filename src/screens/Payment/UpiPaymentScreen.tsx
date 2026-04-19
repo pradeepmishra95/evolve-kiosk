@@ -1,6 +1,7 @@
 import { useNavigate } from "@/navigation/useAppNavigation"
 import Container from "../../layout/Container"
 import PrimaryButton from "../../components/buttons/PrimaryButton"
+import ConsentContent from "../../components/consent/ConsentContent"
 import { useUserStore } from "../../store/userStore"
 import { colors, radius, spacing, typography } from "../../styles/GlobalStyles"
 import { TRIAL_FEE, TRIAL_FEE_NOTE } from "../../utils/trialPricing"
@@ -8,9 +9,8 @@ import {
  getPaymentCollectionAmount,
  getPaymentMethodLabel,
  getPaymentMethodOption,
- getPaymentTotalAmount,
- getRemainingPaymentAmount,
- getResolvedPaymentSurchargeAmount
+ getPaymentSurchargeAmount,
+ getRemainingPaymentAmount
 } from "../../utils/payment"
 
 const formatPrice = (price: number) => `Rs. ${price.toLocaleString("en-IN")}`
@@ -25,47 +25,64 @@ export default function UpiPaymentScreen() {
   price,
   purpose,
   isPartialPayment,
+  isSplitPayment,
   paidAmount,
   dueAmount,
   paymentCollectionStep,
   paymentMethod1,
+  paymentStatus,
   paymentSurchargeAmount,
+  consentAgreed,
   setData
  } = useUserStore()
  const selectedMethod = "upi"
  const isTrialBooking = purpose === "trial"
  const baseAmount = isTrialBooking ? TRIAL_FEE : price
- const isSecondCollectionStep = isPartialPayment && paymentCollectionStep === 2
+ const isStagedPayment = isPartialPayment || isSplitPayment
+ const isSecondCollectionStep = isStagedPayment && paymentCollectionStep === 2
  const payableAmount = getPaymentCollectionAmount({
   baseAmount,
   method: selectedMethod,
   isPartialPayment,
+  isSplitPayment,
   firstInstallmentAmount: paidAmount,
+  dueAmount,
   paymentCollectionStep,
   lockedSurchargeAmount: paymentSurchargeAmount
  })
- const resolvedSurchargeAmount = getResolvedPaymentSurchargeAmount(
-  baseAmount,
-  selectedMethod,
-  paymentSurchargeAmount
- )
- const totalPayableAmount = getPaymentTotalAmount(baseAmount, selectedMethod, paymentSurchargeAmount)
+ // Surcharge on the amount being collected right now (not on full plan)
+ const resolvedSurchargeAmount = isStagedPayment
+  ? isSecondCollectionStep
+   ? getPaymentSurchargeAmount(dueAmount, selectedMethod)
+   : isPartialPayment
+    ? getPaymentSurchargeAmount(paidAmount, selectedMethod)
+    : paymentSurchargeAmount
+  : getPaymentSurchargeAmount(baseAmount, selectedMethod)
+ const totalPayableAmount = payableAmount
  const paymentMethodOption = getPaymentMethodOption(selectedMethod)
  const paymentLabel = getPaymentMethodLabel(selectedMethod)
  const screenTitle = paymentMethodOption?.detailTitle || "UPI Collection"
  const actionLabel = paymentMethodOption?.detailActionLabel || "Collect UPI"
  const paymentHint =
   paymentMethodOption?.detailHint || "Confirm the UPI payment has been completed before finishing."
+ const shouldShowInlineConsent = paymentStatus === "paid" && !consentAgreed
 
  const handleFinish = async () => {
-  if (isPartialPayment && paymentCollectionStep === 1) {
-   const nextDueAmount = getRemainingPaymentAmount(
-    baseAmount,
-    paidAmount,
-    selectedMethod,
-    paymentSurchargeAmount
-   )
+  if (isSplitPayment && paymentCollectionStep === 1) {
+   setData({
+    paymentMethod: selectedMethod,
+    paymentMethod1: selectedMethod,
+    paymentMethod2: "",
+    paymentStatus: "partial",
+    paymentCollectionStep: 2
+   })
 
+   await Promise.resolve()
+   navigate("/payment", { replace: true })
+   return
+  }
+
+  if (isPartialPayment && paymentCollectionStep === 1) {
    setData({
     paymentMethod: selectedMethod,
     paymentMethod1: selectedMethod,
@@ -73,8 +90,8 @@ export default function UpiPaymentScreen() {
     paymentStatus: "partial",
     paymentCollectionStep: 2,
     paymentSurchargeAmount: resolvedSurchargeAmount,
-    paymentTotalAmount: totalPayableAmount,
-    dueAmount: nextDueAmount
+    paymentTotalAmount: payableAmount,
+    dueAmount: getRemainingPaymentAmount(baseAmount, paidAmount)
    })
 
    await Promise.resolve()
@@ -84,29 +101,46 @@ export default function UpiPaymentScreen() {
 
   setData({
    paymentMethod: selectedMethod,
-   paymentMethod1: isPartialPayment ? paymentMethod1 || selectedMethod : selectedMethod,
-   paymentMethod2: isPartialPayment ? selectedMethod : "",
+   paymentMethod1: isStagedPayment ? paymentMethod1 || selectedMethod : selectedMethod,
+   paymentMethod2: isStagedPayment ? selectedMethod : "",
    paymentStatus: "paid",
    dueAmount: isPartialPayment ? payableAmount : 0,
-   paymentSurchargeAmount: resolvedSurchargeAmount,
-   paymentTotalAmount: totalPayableAmount
+   ...(isSplitPayment
+    ? {}
+    : {
+       paymentSurchargeAmount: resolvedSurchargeAmount,
+       paymentTotalAmount: totalPayableAmount
+      })
   })
 
   await Promise.resolve()
-  navigate("/consent", { replace: true })
+  if (consentAgreed) {
+   navigate("/success", { replace: true })
+  }
  }
 
  return (
   <Container scrollable>
+   {shouldShowInlineConsent ? (
+    <ConsentContent
+     onComplete={() => {
+      navigate("/success", { replace: true })
+     }}
+    />
+   ) : (
    <div style={styles.wrapper}>
     <h2 style={styles.heading}>{screenTitle}</h2>
 
     <div style={styles.amountCard}>
      <span style={styles.amountLabel}>{actionLabel}</span>
      <strong style={styles.amount}>{formatPrice(payableAmount)}</strong>
-     {isPartialPayment && (
+     {isStagedPayment && (
       <span style={styles.partialMeta}>
-       {isSecondCollectionStep ? "Final collection" : `Base remaining: ${formatPrice(dueAmount)}`}
+       {isSecondCollectionStep
+        ? "Final collection"
+        : isSplitPayment
+         ? `Next collection: ${formatPrice(dueAmount)}`
+         : `Base remaining: ${formatPrice(dueAmount)}`}
       </span>
      )}
     </div>
@@ -118,13 +152,15 @@ export default function UpiPaymentScreen() {
      </div>
     )}
 
-    {isPartialPayment && (
+    {isStagedPayment && (
      <div style={styles.noticeCard}>
       <p style={styles.noticeTitle}>{isSecondCollectionStep ? "Final collection" : "First collection"}</p>
       <p style={styles.noticeText}>
        {isSecondCollectionStep
-        ? `Collect the remaining ₹${dueAmount.toLocaleString("en-IN")} now.`
-        : `After this ₹${paidAmount.toLocaleString("en-IN")} collection, the remaining amount will be ₹${getRemainingPaymentAmount(baseAmount, paidAmount, selectedMethod, paymentSurchargeAmount).toLocaleString("en-IN")}.`}
+        ? `Collect the remaining ₹${dueAmount.toLocaleString("en-IN")}.`
+        : isSplitPayment
+         ? `Collect ₹${payableAmount.toLocaleString("en-IN")} now${paymentSurchargeAmount > 0 ? ` (includes ₹${paymentSurchargeAmount.toLocaleString("en-IN")} surcharge on ₹${paidAmount.toLocaleString("en-IN")})` : ""}. Remaining ₹${dueAmount.toLocaleString("en-IN")} will be collected next.`
+         : `Collect ₹${paidAmount.toLocaleString("en-IN")} now. Remaining ₹${getRemainingPaymentAmount(baseAmount, paidAmount).toLocaleString("en-IN")} due later.`}
       </p>
      </div>
     )}
@@ -133,7 +169,7 @@ export default function UpiPaymentScreen() {
      <div style={styles.noticeCard}>
       <p style={styles.noticeTitle}>Surcharge Applied</p>
       <p style={styles.noticeText}>
-       ₹{resolvedSurchargeAmount.toLocaleString("en-IN")} has already been added on the full plan amount. Total payable is ₹{totalPayableAmount.toLocaleString("en-IN")}.
+       ₹{resolvedSurchargeAmount.toLocaleString("en-IN")} surcharge added on ₹{(isSecondCollectionStep ? dueAmount : isStagedPayment ? paidAmount : baseAmount).toLocaleString("en-IN")}. Total to collect: ₹{payableAmount.toLocaleString("en-IN")}.
       </p>
      </div>
     )}
@@ -160,6 +196,7 @@ export default function UpiPaymentScreen() {
      </div>
     </div>
    </div>
+   )}
   </Container>
  )
 }

@@ -30,10 +30,15 @@ type ExistingUser = {
   gender?: UserGender;
   lookingFor?: string;
   experience?: string;
+  priorExerciseExperience?: string;
+  priorExerciseActivity?: string[];
+  priorExerciseDuration?: string;
+  lastExerciseTime?: string;
   injury?: boolean;
   injuryDetails?: string;
   exerciseType?: string;
   program?: string;
+  days?: string;
   plan?: string;
   duration?: MembershipDuration;
   price?: number;
@@ -202,11 +207,18 @@ export default function PhoneCheckScreen() {
           followUpTime:
             typeof data.followUp === "object" && data.followUp ? data.followUp.time ?? "" : "",
           experience: data.experience ?? "",
+          priorExerciseExperience: data.priorExerciseExperience ?? "",
+          priorExerciseActivity: Array.isArray(data.priorExerciseActivity)
+           ? data.priorExerciseActivity.filter((item): item is string => typeof item === "string")
+           : [],
+          priorExerciseDuration: data.priorExerciseDuration ?? "",
+          lastExerciseTime: data.lastExerciseTime ?? "",
           injury: typeof data.injury === "boolean" ? data.injury : false,
           injuryAnswered: true,
           injuryDetails: data.injuryDetails ?? "",
           exerciseType: data.exerciseType ?? "",
           program: data.program ?? "",
+          days: data.days ?? "",
           plan: data.plan ?? "",
           duration: data.duration ?? "",
           price: typeof data.price === "number" ? data.price : 0,

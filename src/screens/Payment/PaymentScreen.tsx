@@ -8,11 +8,9 @@ import { colors, radius, spacing, typography } from "../../styles/GlobalStyles"
 import { TRIAL_FEE, TRIAL_FEE_NOTE } from "../../utils/trialPricing"
 import {
  CARD_AND_EMI_SURCHARGE_RATE,
- getPaymentCollectionAmount,
- getPaymentTotalAmount,
+ getPaymentSurchargeAmount,
  getPendingPaymentStatus,
  getRemainingPaymentAmount,
- getResolvedPaymentSurchargeAmount,
  isUpiPaymentMethod,
  PAYMENT_METHOD_OPTIONS
 } from "../../utils/payment"
@@ -25,47 +23,53 @@ export default function PaymentScreen(){
  const [paymentError, setPaymentError] = useState("")
  const isTrialBooking = data.purpose === "trial"
  const baseAmount = isTrialBooking ? TRIAL_FEE : data.price
- const isSecondCollectionStep = data.isPartialPayment && data.paymentCollectionStep === 2
+ const isSecondCollectionStep = (data.isPartialPayment || data.isSplitPayment) && data.paymentCollectionStep === 2
+ const splitCollectionAmount = data.isSplitPayment
+  ? isSecondCollectionStep
+   ? data.dueAmount
+   : data.paidAmount
+  : 0
  const availablePaymentMethods = PAYMENT_METHOD_OPTIONS.filter(
-  (method) => !(isTrialBooking && method.value === "emi")
+  (method) => !(isTrialBooking && (method.value === "emi" || method.value === "cheque"))
  )
 
  const buildMethodSubtitle = (method: (typeof PAYMENT_METHOD_OPTIONS)[number]) => {
-  const surchargeAmount = getResolvedPaymentSurchargeAmount(
-   baseAmount,
-   method.value,
-   data.paymentSurchargeAmount
-  )
-  const totalAmount = getPaymentTotalAmount(baseAmount, method.value, data.paymentSurchargeAmount)
-  const collectNowAmount = getPaymentCollectionAmount({
-   baseAmount,
-   method: method.value,
-   isPartialPayment: data.isPartialPayment,
-   firstInstallmentAmount: data.paidAmount,
-   paymentCollectionStep: data.paymentCollectionStep,
-   lockedSurchargeAmount: data.paymentSurchargeAmount
-  })
-  const remainingAmount = data.isPartialPayment
-   ? getRemainingPaymentAmount(baseAmount, data.paidAmount, method.value, data.paymentSurchargeAmount)
-   : 0
   const subtitleParts = [method.subtitle]
-
-  if (surchargeAmount > 0) {
-   subtitleParts.push(
-    `Surcharge +₹${surchargeAmount.toLocaleString("en-IN")} on full amount`
-   )
-  }
 
   if (data.isPartialPayment) {
    if (isSecondCollectionStep) {
-    subtitleParts.push(`Collect now ₹${collectNowAmount.toLocaleString("en-IN")}`)
+    // Step 2: surcharge on remaining due amount
+    const surcharge = getPaymentSurchargeAmount(data.dueAmount, method.value)
+    const collectNow = data.dueAmount + surcharge
+    if (surcharge > 0) subtitleParts.push(`Surcharge +₹${surcharge.toLocaleString("en-IN")} on ₹${data.dueAmount.toLocaleString("en-IN")}`)
+    subtitleParts.push(`Collect ₹${collectNow.toLocaleString("en-IN")}`)
    } else {
-    subtitleParts.push(
-     `Collect now ₹${collectNowAmount.toLocaleString("en-IN")} • remaining ₹${remainingAmount.toLocaleString("en-IN")}`
-    )
+    // Step 1: surcharge only on partial amount
+    const surcharge = getPaymentSurchargeAmount(data.paidAmount, method.value)
+    const collectNow = data.paidAmount + surcharge
+    const remaining = getRemainingPaymentAmount(baseAmount, data.paidAmount)
+    if (surcharge > 0) subtitleParts.push(`Surcharge +₹${surcharge.toLocaleString("en-IN")} on ₹${data.paidAmount.toLocaleString("en-IN")}`)
+    subtitleParts.push(`Collect ₹${collectNow.toLocaleString("en-IN")} now • ₹${remaining.toLocaleString("en-IN")} due later`)
    }
-  } else if (surchargeAmount > 0) {
-   subtitleParts.push(`Total payable ₹${totalAmount.toLocaleString("en-IN")}`)
+  } else if (data.isSplitPayment) {
+   if (isSecondCollectionStep) {
+    // Step 2: surcharge on due amount
+    const surcharge = getPaymentSurchargeAmount(data.dueAmount, method.value)
+    const collectNow = data.dueAmount + surcharge
+    if (surcharge > 0) subtitleParts.push(`Surcharge +₹${surcharge.toLocaleString("en-IN")} on ₹${data.dueAmount.toLocaleString("en-IN")}`)
+    subtitleParts.push(`Collect ₹${collectNow.toLocaleString("en-IN")}`)
+   } else {
+    // Step 1: surcharge locked from review (on paidAmount, for the locked method)
+    const collectNow = data.paidAmount + data.paymentSurchargeAmount
+    subtitleParts.push(`Collect ₹${collectNow.toLocaleString("en-IN")} now • ₹${data.dueAmount.toLocaleString("en-IN")} next step`)
+   }
+  } else {
+   // Full payment: surcharge on full amount
+   const surcharge = getPaymentSurchargeAmount(baseAmount, method.value)
+   if (surcharge > 0) {
+    subtitleParts.push(`Surcharge +₹${surcharge.toLocaleString("en-IN")}`)
+    subtitleParts.push(`Total ₹${(baseAmount + surcharge).toLocaleString("en-IN")}`)
+   }
   }
 
   return subtitleParts.join(" • ")
@@ -119,15 +123,24 @@ export default function PaymentScreen(){
       </p>
      )}
 
+     {data.isSplitPayment && (
+      <div style={styles.noticeCard}>
+       <p style={styles.noticeTitle}>{isSecondCollectionStep ? "Collect second portion" : "Split payment — Step 1"}</p>
+       <p style={styles.noticeText}>
+        {isSecondCollectionStep
+         ? `Collect remaining ₹${data.dueAmount.toLocaleString("en-IN")}. Card/EMI adds ${(CARD_AND_EMI_SURCHARGE_RATE * 100).toFixed(0)}% surcharge on this amount.`
+         : `Collect ₹${data.paidAmount.toLocaleString("en-IN")}${data.paymentSurchargeAmount > 0 ? ` + ₹${data.paymentSurchargeAmount.toLocaleString("en-IN")} surcharge` : ""} now. Remaining ₹${data.dueAmount.toLocaleString("en-IN")} collected next.`}
+       </p>
+      </div>
+     )}
+
      {data.isPartialPayment && (
       <div style={styles.noticeCard}>
        <p style={styles.noticeTitle}>{isSecondCollectionStep ? "Collect remaining amount" : "Partial payment mode"}</p>
        <p style={styles.noticeText}>
         {isSecondCollectionStep
-         ? data.paymentSurchargeAmount > 0
-          ? `Now collect ₹${data.dueAmount.toLocaleString("en-IN")}. This already includes ₹${data.paymentSurchargeAmount.toLocaleString("en-IN")} card/EMI surcharge on the full plan amount.`
-          : `Now collect the remaining ₹${data.dueAmount.toLocaleString("en-IN")}. Card and EMI methods add ${(CARD_AND_EMI_SURCHARGE_RATE * 100).toFixed(0)}% surcharge on the full plan amount.`
-         : `Collect ₹${data.paidAmount.toLocaleString("en-IN")} now. Base remaining amount is ₹${data.dueAmount.toLocaleString("en-IN")}. Card and EMI methods add ${(CARD_AND_EMI_SURCHARGE_RATE * 100).toFixed(0)}% surcharge on the full plan amount.`}
+         ? `Collect remaining ₹${data.dueAmount.toLocaleString("en-IN")}. Card/EMI adds ${(CARD_AND_EMI_SURCHARGE_RATE * 100).toFixed(0)}% surcharge on this remaining amount only.`
+         : `Collect ₹${data.paidAmount.toLocaleString("en-IN")} now (surcharge applies on this partial amount only, not the full plan). Remaining ₹${data.dueAmount.toLocaleString("en-IN")} due later${data.partialPaymentDueDate ? ` (${data.partialPaymentDueDate})` : ""}.`}
        </p>
       </div>
      )}

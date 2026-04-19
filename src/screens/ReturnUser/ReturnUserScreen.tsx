@@ -32,6 +32,7 @@ export default function ReturnUserScreen() {
  const {
   name,
   status,
+  purpose,
   age,
   program,
   exerciseType,
@@ -50,25 +51,44 @@ export default function ReturnUserScreen() {
  const resolvedProgram = program || selectedPlan?.name || ""
  const resolvedDays = days || selectedPlan?.scheduleDays?.join(", ") || selectedPlan?.days || ""
  const resolvedStatus = status || "enquiry"
+ const hasBookedTrial = resolvedStatus === "trial" || (resolvedStatus !== "member" && purpose === "trial")
  const resolvedRenewDuration = duration || selectedPlan?.pricing?.[0]?.duration || ""
  const resolvedRegularPricing = getRegularPlanPricing(selectedPlan)
  const resolvedRenewPrice =
   resolvedRegularPricing?.price ?? (price !== TRIAL_FEE ? price : 0)
 
+ const isExistingEnquiryChoicePending = resolvedStatus === "enquiry" && purpose === "enquiry"
+ const isFlowActive = Boolean(purpose) && !isExistingEnquiryChoicePending
+
  const getHeading = () => `Welcome Back${name ? `, ${name}` : ""}`
+
+ const handleContinue = () => {
+  navigate("/review")
+ }
+
+ const getContinueLabel = () => {
+  switch (purpose) {
+   case "trial": return "Book Trial"
+   case "enroll": return "Enroll"
+   case "renew": return "Renew"
+   case "enquiry": return "Enquiry"
+   default: return "Continue"
+  }
+ }
 
  const handleTrial = () => {
   const trialPricing = selectedPlan ? getTrialPlanPricing(selectedPlan) : null
 
-  setData({
+ setData({
    purpose: "trial",
-   status: "trial",
+   status: resolvedStatus,
    program: resolvedProgram,
    days: resolvedDays,
    duration: trialPricing?.duration || duration || "1 Day",
    price: TRIAL_FEE,
    mainPlanPrice: TRIAL_FEE,
    selectedAddOnIds: [],
+   cameFromTrial: false,
    batchType,
    batchTime,
    batchDate,
@@ -87,9 +107,9 @@ export default function ReturnUserScreen() {
   const resolvedEnrollPrice =
    resolvedRegularPricing?.price ?? (price !== TRIAL_FEE ? price : 0)
 
-  setData({
+ setData({
    purpose: "enroll",
-   status: "member",
+   status: resolvedStatus,
    cameFromTrial: resolvedStatus === "trial",
    program: resolvedProgram,
    days: resolvedDays,
@@ -106,15 +126,16 @@ export default function ReturnUserScreen() {
    paymentStatus: ""
   })
 
-  navigate("/plan")
+  navigate(resolvedStatus === "enquiry" ? "/review" : "/plan")
  }
 
  const handleRenew = () => {
   const resolvedRenewPricing = resolvedRegularPricing
 
-  setData({
+ setData({
    purpose: "renew",
-   status: "member",
+   status: resolvedStatus,
+   cameFromTrial: false,
    program: resolvedProgram,
    days: resolvedDays,
    duration: resolvedRenewPricing?.duration || resolvedRenewDuration,
@@ -134,6 +155,15 @@ export default function ReturnUserScreen() {
  }
 
  const cards = (() => {
+  if (isFlowActive) {
+   return [
+    {
+     title: getContinueLabel(),
+     onClick: handleContinue
+    }
+   ]
+  }
+
   if (resolvedStatus === "member") {
    return [
     {
@@ -143,8 +173,22 @@ export default function ReturnUserScreen() {
    ]
   }
 
-  if (resolvedStatus === "trial") {
+ if (hasBookedTrial) {
+  return [
+   {
+    title: "Enroll",
+     onClick: handleEnroll
+   }
+  ]
+ }
+
+  if (resolvedStatus === "enquiry") {
    return [
+    {
+     title: "Book Trial",
+     subtitle: `₹${TRIAL_FEE} trial booking fee. ${TRIAL_FEE_NOTE}`,
+     onClick: handleTrial
+    },
     {
      title: "Enroll",
      onClick: handleEnroll
@@ -154,7 +198,7 @@ export default function ReturnUserScreen() {
 
   return [
    {
-    title: "Book Trial",
+     title: "Book Trial",
     subtitle: `₹${TRIAL_FEE} trial booking fee. ${TRIAL_FEE_NOTE}`,
     onClick: handleTrial
    },

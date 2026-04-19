@@ -30,8 +30,10 @@ interface PaymentRecordPayload {
  paymentMethod: PaymentMethod
  paymentStatus: PaymentStatus
  isPartialPayment?: boolean
+ isSplitPayment?: boolean
  paidAmount?: number
  dueAmount?: number
+ partialPaymentDueDate?: string
  paymentMethod1?: PaymentMethod
  paymentMethod2?: PaymentMethod
  paymentSurchargeAmount?: number

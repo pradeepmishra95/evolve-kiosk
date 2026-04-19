@@ -6,7 +6,8 @@ export default function RouteFallback() {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    color: "#000"
+    backgroundColor: "#071117",
+    color: "#F7F1E6"
    }}
   >
    Loading...

@@ -41,6 +41,10 @@ body {
 }
 
 body {
+  /* Solid background-color fallback to avoid white flash before gradients paint */
+  background-color: var(--color-bg);
+  /* Keep background fixed so the gradient doesn't reflow on navigation */
+  background-attachment: fixed;
   background:
     radial-gradient(circle at top left, rgba(106, 166, 154, 0.18), transparent 32%),
     radial-gradient(circle at top right, rgba(243, 224, 182, 0.12), transparent 28%),

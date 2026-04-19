@@ -63,11 +63,11 @@ export default function RootLayout({
  children: ReactNode
 }>) {
  return (
-  <html
-   lang="en"
-   className={`${manrope.variable} ${cormorantGaramond.variable}`}
-  >
-   <body>
+    <html
+     lang="en"
+     className={`${manrope.variable} ${cormorantGaramond.variable}`}
+    >
+     <body style={{ backgroundColor: "#071117", color: "#F7F1E6" }}>
     {children}
     <ToastHost />
     <ServiceWorkerRegistration />

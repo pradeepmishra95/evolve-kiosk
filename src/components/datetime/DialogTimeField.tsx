@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type CSSProperties } from "react"
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react"
 import { colors, radius, spacing, typography } from "../../styles/GlobalStyles"
 import {
  formatTwelveHourTime,
@@ -136,7 +136,8 @@ export default function DialogTimeField({
  const [draftPresetValue, setDraftPresetValue] = useState<string | null>(
   selectedOption ? selectedOption.value : null
  )
- const [activeSegment, setActiveSegment] = useState<"hour" | "minute">("minute")
+ const [activeSegment, setActiveSegment] = useState<"hour" | "minute">("hour")
+ const minuteSegmentButtonRef = useRef<HTMLButtonElement | null>(null)
  const selectedTextId = `${fieldId}-selected`
  const helperId = `${fieldId}-helper`
  const errorId = `${fieldId}-error`
@@ -181,7 +182,7 @@ export default function DialogTimeField({
   const initialTime = resolveInitialTime(value, enabledOptions)
   setDraftTime(initialTime)
   setDraftPresetValue(selectedOption ? selectedOption.value : null)
-  setActiveSegment("minute")
+  setActiveSegment("hour")
   setOpen(true)
  }
 
@@ -302,6 +303,7 @@ export default function DialogTimeField({
        <button
         type="button"
         className="kiosk-focus-ring touch-feedback"
+        ref={minuteSegmentButtonRef}
         onClick={() => setActiveSegment("minute")}
         disabled={!showDial}
         style={{
@@ -464,6 +466,10 @@ export default function DialogTimeField({
             onClick={() => {
              if (activeSegment === "hour") {
               updateManualTime({ hour: Number(dialValue) })
+              setActiveSegment("minute")
+              window.requestAnimationFrame(() => {
+               minuteSegmentButtonRef.current?.focus()
+              })
              } else {
               updateManualTime({ minute: String(dialValue).padStart(2, "0") })
              }

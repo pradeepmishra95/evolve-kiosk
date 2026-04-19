@@ -165,34 +165,36 @@ export default function DialogDateField({
  helperText,
  min,
  max,
- options = [],
+ options,
  emptyMessage = "No dates available right now.",
  pickerTitle = "Select Date",
  size = "default"
 }: DialogDateFieldProps) {
  const fieldId = useId()
+ const resolvedOptions = options ?? []
+ const hasOptionRestrictions = options !== undefined
  const minDate = useMemo(() => parseDateInputValue(min || ""), [min])
  const maxDate = useMemo(() => parseDateInputValue(max || ""), [max])
  const allowedDateSet = useMemo(() => {
-  if (options.length === 0) {
+  if (!hasOptionRestrictions) {
    return null
   }
 
-  return new Set(options.filter((option) => !option.disabled).map((option) => option.value))
- }, [options])
+  return new Set(resolvedOptions.filter((option) => !option.disabled).map((option) => option.value))
+ }, [hasOptionRestrictions, resolvedOptions])
  const allowedMonthSet = useMemo(() => {
-  if (options.length === 0) {
+  if (!hasOptionRestrictions) {
    return null
   }
 
   return new Set(
-   options
+   resolvedOptions
     .filter((option) => !option.disabled)
     .map((option) => parseDateInputValue(option.value))
     .filter((optionDate): optionDate is Date => Boolean(optionDate))
     .map((optionDate) => toMonthKey(optionDate))
   )
- }, [options])
+ }, [hasOptionRestrictions, resolvedOptions])
  const selectedDate = useMemo(() => parseDateInputValue(value), [value])
  const initialDate = useMemo(
   () =>
@@ -201,9 +203,9 @@ export default function DialogDateField({
     minDate,
     maxDate,
     allowedDateSet,
-    options
+    options: resolvedOptions
    }),
-  [allowedDateSet, maxDate, minDate, options, value]
+  [allowedDateSet, maxDate, minDate, resolvedOptions, value]
  )
  const [open, setOpen] = useState(false)
  const [draftValue, setDraftValue] = useState(value)
@@ -217,7 +219,7 @@ export default function DialogDateField({
  const draftDate = useMemo(() => parseDateInputValue(draftValue), [draftValue])
  const calendarCells = useMemo(() => buildCalendarCells(viewMonth), [viewMonth])
  const hasSelectableDates = Boolean(initialDate)
- const selectedOption = options.find((option) => option.value === value) || null
+ const selectedOption = resolvedOptions.find((option) => option.value === value) || null
  const isCompact = size === "compact"
 
  const canViewMonth = (month: Date) => {

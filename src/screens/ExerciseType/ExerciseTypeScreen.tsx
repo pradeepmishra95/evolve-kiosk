@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "@/navigation/useAppNavigation"
 import Container from "../../layout/Container"
 import { useDevice } from "../../hooks/useDevice"
@@ -138,7 +138,17 @@ export default function ExerciseTypeScreen() {
    </div>
 
    {activeTrainingType && (
-    <div style={styles.overlay}>
+    <div
+     style={styles.overlay}
+     role="dialog"
+     aria-modal="true"
+     aria-label={`${activeTrainingType.name} details`}
+     onClick={(event) => {
+      if (event.target === event.currentTarget) {
+       setActiveTrainingType(null)
+      }
+     }}
+    >
      <div style={styles.modal}>
       <div style={styles.modalHeader}>
        <div>
@@ -154,48 +164,50 @@ export default function ExerciseTypeScreen() {
         style={styles.closeButton}
         aria-label="Close training type details"
        >
-        X
+        Close
        </button>
       </div>
 
-      <p style={styles.modalIntro}>
-       {getProgramSummary(activeTrainingType)}
-      </p>
+      <div style={styles.modalBody}>
+       <p style={styles.modalIntro}>
+        {getProgramSummary(activeTrainingType)}
+       </p>
 
-      {activeTrainingType.bestFor && (
+       {activeTrainingType.bestFor && (
+        <div style={styles.section}>
+         <h4 style={styles.sectionTitle}>Best For</h4>
+         <p style={styles.sectionText}>
+          {activeTrainingType.bestFor}
+         </p>
+        </div>
+       )}
+
        <div style={styles.section}>
-        <h4 style={styles.sectionTitle}>Best For</h4>
+        <h4 style={styles.sectionTitle}>What Is It?</h4>
         <p style={styles.sectionText}>
-         {activeTrainingType.bestFor}
+         {activeTrainingType.description}
         </p>
        </div>
-      )}
 
-      <div style={styles.section}>
-       <h4 style={styles.sectionTitle}>What Is It?</h4>
-       <p style={styles.sectionText}>
-        {activeTrainingType.description}
-       </p>
+       <div style={styles.section}>
+        <h4 style={styles.sectionTitle}>Benefits</h4>
+        <ul style={styles.list}>
+         {activeTrainingType.benefits.map((benefit) => (
+          <li key={benefit} style={styles.listItem}>
+           {benefit}
+          </li>
+         ))}
+        </ul>
+       </div>
       </div>
 
-      <div style={styles.section}>
-       <h4 style={styles.sectionTitle}>Benefits</h4>
-       <ul style={styles.list}>
-        {activeTrainingType.benefits.map((benefit) => (
-         <li key={benefit} style={styles.listItem}>
-          {benefit}
-         </li>
-        ))}
-       </ul>
-      </div>
-
-      <div style={styles.modalActions}>
+      <div style={styles.modalFooter}>
        <button
         type="button"
         onClick={() => {
          setActiveTrainingType(null)
         }}
-        style={styles.secondaryButton}
+        style={styles.modalSecondaryButton}
        >
         Close
        </button>
@@ -211,7 +223,7 @@ export default function ExerciseTypeScreen() {
         }}
         disabled={activeTrainingType.disabled}
         style={{
-         ...styles.primaryButton,
+         ...styles.modalPrimaryButton,
          border: activeTrainingType.disabled ? `1px solid ${colors.border}` : "none",
          background: activeTrainingType.disabled ? "rgba(255,255,255,0.08)" : colors.primary,
          color: activeTrainingType.disabled ? colors.textMuted : colors.textOnAccent,
@@ -348,82 +360,124 @@ const styles = {
  overlay: {
   position: "fixed" as const,
   inset: 0,
-  background: "rgba(4,10,14,0.78)",
-  backdropFilter: "blur(10px)",
+  background: "rgba(7,11,16,0.78)",
+  backdropFilter: "blur(8px)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  padding: "20px",
+  padding: "clamp(14px, 3vw, 30px)",
   zIndex: 1000
  },
  modal: {
-  width: "min(100%, 760px)",
-  maxHeight: "min(82vh, 900px)",
-  overflowY: "auto" as const,
-  padding: "24px",
+  width: "min(100%, 780px)",
+  maxHeight: "86vh",
   borderRadius: radius.lg,
   border: `1px solid ${colors.borderStrong}`,
-  background: "linear-gradient(180deg, rgba(13,23,29,0.98), rgba(13,23,29,0.94))",
+  background: "linear-gradient(160deg, rgba(15,22,30,0.98), rgba(8,14,20,0.98))",
   boxShadow: shadow.modal,
-  color: colors.textPrimary
+  color: colors.textPrimary,
+  display: "flex",
+  flexDirection: "column" as const
  },
  modalHeader: {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "flex-start",
+  alignItems: "center",
   gap: spacing.md,
-  marginBottom: spacing.md
+  padding: "clamp(16px, 2.4vh, 24px)",
+  borderBottom: `1px solid ${colors.border}`
  },
  modalTitle: {
   ...typography.subtitle,
-  fontSize: "34px",
-  lineHeight: 1
+  fontSize: "24px"
  },
  closeButton: {
-  width: "42px",
-  height: "42px",
-  borderRadius: "999px",
   border: `1px solid ${colors.borderStrong}`,
-  background: "transparent",
-  color: colors.primaryLight,
-  cursor: "pointer",
-  fontSize: "14px",
+  borderRadius: radius.md,
+  background: "rgba(255,255,255,0.04)",
+  color: colors.textPrimary,
+  fontSize: "12px",
+  letterSpacing: "0.1em",
+  textTransform: "uppercase" as const,
   fontWeight: 800,
-  flexShrink: 0
+  padding: "9px 12px",
+  cursor: "pointer"
+ },
+ modalBody: {
+  overflowY: "auto" as const,
+  WebkitOverflowScrolling: "touch" as const,
+  padding: "clamp(16px, 2.4vh, 24px)",
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: spacing.md,
+  flex: 1
+ },
+ modalFooter: {
+  display: "flex",
+  gap: spacing.sm,
+  justifyContent: "flex-end",
+  flexWrap: "wrap" as const,
+  padding: "clamp(16px, 2.4vh, 24px)",
+  borderTop: `1px solid ${colors.border}`
  },
  modalIntro: {
   color: colors.textSecondary,
   lineHeight: 1.7,
-  marginBottom: spacing.lg
+  margin: 0
  },
  section: {
-  marginBottom: spacing.lg
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: spacing.sm
  },
  sectionTitle: {
   color: colors.primaryLight,
-  fontSize: "18px",
-  fontWeight: 700,
-  marginBottom: spacing.sm,
-  letterSpacing: "0.04em"
+  fontSize: "14px",
+  letterSpacing: "0.14em",
+  textTransform: "uppercase" as const,
+  fontWeight: 800
  },
  sectionText: {
   color: colors.textSecondary,
-  lineHeight: 1.75
+  lineHeight: 1.7,
+  margin: 0
  },
  list: {
   margin: 0,
   paddingLeft: "18px",
   color: colors.textSecondary,
-  lineHeight: 1.8
+  display: "grid",
+  gap: "10px"
  },
  listItem: {
-  marginBottom: "6px"
+  lineHeight: 1.7
  },
- modalActions: {
-  display: "flex",
-  gap: spacing.sm,
-  justifyContent: "flex-end",
-  flexWrap: "wrap" as const,
-  paddingTop: spacing.sm
+ modalPrimaryButton: {
+  minHeight: "48px",
+  flex: 1,
+  borderRadius: "999px",
+  border: `1px solid ${colors.borderStrong}`,
+  background: colors.primary,
+  color: colors.textOnAccent,
+  padding: "12px 16px",
+  cursor: "pointer",
+  letterSpacing: "0.1em",
+  textTransform: "uppercase" as const,
+  fontSize: "12px",
+  fontWeight: 700
+ },
+ modalSecondaryButton: {
+  minHeight: "48px",
+  flex: 1,
+  borderRadius: "999px",
+  border: `1px solid ${colors.borderStrong}`,
+  background: "transparent",
+  color: colors.primaryLight,
+  padding: "12px 16px",
+  cursor: "pointer",
+  letterSpacing: "0.1em",
+  textTransform: "uppercase" as const,
+  fontSize: "12px",
+  fontWeight: 700
  }
 }

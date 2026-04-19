@@ -31,6 +31,7 @@ export type EnquiryStatus =
 
 export type MembershipDuration =
  | "1 Day"
+ | "1 Week"
  | "1 Session"
  | "Free Trial"
  | "Monthly"
@@ -49,6 +50,7 @@ export interface PlanPricing {
 export interface PriceBreakdownLine {
  label: string
  amount: number
+ originalAmount?: number
 }
 
 export interface ProgramPlan {

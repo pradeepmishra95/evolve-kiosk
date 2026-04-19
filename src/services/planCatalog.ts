@@ -404,6 +404,7 @@ const rankDuration = (duration: string) => {
  const normalized = normalizeLabel(normalizeDurationLabel(duration))
  const order = [
   "1day",
+  "1week",
   "1session",
   "freetrial",
   "monthly",

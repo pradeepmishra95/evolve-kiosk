@@ -99,28 +99,3 @@ Current behavior:
 4. Drawn signature is optional supplementary evidence.
 5. No external signing provider or signing service is used.
 
-## WhatsApp Backend
-
-This project now includes a server route at `app/api/whatsapp/confirmation/route.ts` for sending WhatsApp confirmations with Meta Cloud API after a trial booking or enrollment succeeds.
-
-Create a local `.env` from `.env.example` and fill these values:
-
-```bash
-FIREBASE_PROJECT_ID=evolve-kiosk
-FIREBASE_STORAGE_BUCKET=evolve-kiosk.firebasestorage.app
-FIREBASE_SERVICE_ACCOUNT_JSON=
-
-WHATSAPP_ACCESS_TOKEN=your_meta_access_token
-WHATSAPP_PHONE_NUMBER_ID=your_meta_phone_number_id
-WHATSAPP_API_VERSION=v23.0
-WHATSAPP_TEMPLATE_LANGUAGE_CODE=en_US
-WHATSAPP_TRIAL_TEMPLATE_NAME=your_trial_template_name
-WHATSAPP_ENROLL_TEMPLATE_NAME=your_enroll_template_name
-```
-
-Expected WhatsApp template body variable order:
-
-1. Customer name
-2. Program name
-3. Duration
-4. Batch time

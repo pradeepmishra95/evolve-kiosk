@@ -121,7 +121,9 @@ interface PaymentCollectionAmountInput {
  baseAmount: number
  method: PaymentMethod
  isPartialPayment?: boolean
+ isSplitPayment?: boolean
  firstInstallmentAmount?: number
+ dueAmount?: number
  paymentCollectionStep?: 1 | 2
  lockedSurchargeAmount?: number
 }
@@ -130,26 +132,37 @@ export const getPaymentCollectionAmount = ({
  baseAmount,
  method,
  isPartialPayment = false,
+ isSplitPayment = false,
  firstInstallmentAmount = 0,
+ dueAmount = 0,
  paymentCollectionStep = 1,
- lockedSurchargeAmount = 0
-}: PaymentCollectionAmountInput) => {
- const totalAmount = getPaymentTotalAmount(baseAmount, method, lockedSurchargeAmount)
-
- if (!isPartialPayment) {
-  return totalAmount
+ lockedSurchargeAmount = 0,
+}: PaymentCollectionAmountInput): number => {
+ if (isPartialPayment) {
+  if (paymentCollectionStep === 2) {
+   // Step 2: surcharge on remaining due amount, decided by method chosen now
+   return Math.max(0, dueAmount + getPaymentSurchargeAmount(dueAmount, method))
+  }
+  // Step 1: surcharge only on the partial amount being paid now
+  return Math.max(0, firstInstallmentAmount + getPaymentSurchargeAmount(firstInstallmentAmount, method))
  }
 
- if (paymentCollectionStep === 2) {
-  return Math.max(0, totalAmount - firstInstallmentAmount)
+ if (isSplitPayment) {
+  if (paymentCollectionStep === 2) {
+   // Step 2: surcharge on remaining due amount, decided by method chosen now
+   return Math.max(0, dueAmount + getPaymentSurchargeAmount(dueAmount, method))
+  }
+  // Step 1: surcharge was locked in at review time for the chosen method
+  return Math.max(0, firstInstallmentAmount + lockedSurchargeAmount)
  }
 
- return Math.max(0, Math.min(firstInstallmentAmount, totalAmount))
+ return getPaymentTotalAmount(baseAmount, method, lockedSurchargeAmount)
 }
 
+// Returns the base remaining amount — no surcharge pre-calculated (surcharge decided when step 2 is paid)
 export const getRemainingPaymentAmount = (
  baseAmount: number,
  firstInstallmentAmount: number,
- method: PaymentMethod,
- lockedSurchargeAmount = 0
-) => Math.max(0, getPaymentTotalAmount(baseAmount, method, lockedSurchargeAmount) - firstInstallmentAmount)
+ _method?: PaymentMethod,
+ _lockedSurchargeAmount?: number
+): number => Math.max(0, baseAmount - firstInstallmentAmount)

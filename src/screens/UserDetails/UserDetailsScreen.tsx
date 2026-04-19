@@ -464,6 +464,11 @@ export default function UserDetailsScreen() {
    return
   }
 
+  if (purpose !== "enroll") {
+   navigate("/program")
+   return
+  }
+
   if (profilePhotoUrl || profilePhotoStoragePath) {
    navigate("/program")
    return
@@ -719,21 +724,21 @@ export default function UserDetailsScreen() {
        }}
       >
        <ChoiceCard
-        title="Trained before"
-        subtitle="Select if the user has done structured exercise before."
-        selected={priorExerciseExperience === "yes"}
-        showBadge={false}
-        centered
-        onClick={() => handlePriorExperienceChange("yes")}
-      />
-
-       <ChoiceCard
         title="First timer"
         subtitle="Choose this if they are just starting out."
         selected={priorExerciseExperience === "no"}
         showBadge={false}
         centered
         onClick={() => handlePriorExperienceChange("no")}
+       />
+
+       <ChoiceCard
+        title="Trained before"
+        subtitle="Select if the user has done structured exercise before."
+        selected={priorExerciseExperience === "yes"}
+        showBadge={false}
+        centered
+        onClick={() => handlePriorExperienceChange("yes")}
        />
       </Grid>
 
@@ -999,29 +1004,30 @@ const styles = {
   position: "fixed" as const,
   inset: 0,
   zIndex: 120,
-  background: "rgba(5,12,16,0.84)",
+  background: "rgba(7,11,16,0.78)",
   backdropFilter: "blur(8px)",
   display: "flex",
   justifyContent: "center",
-  alignItems: "flex-start",
-  padding: "clamp(20px, 6vh, 56px) clamp(14px, 2vw, 22px)"
+  alignItems: "center",
+  padding: "clamp(14px, 3vw, 30px)"
  },
  trainingInfoModalCard: {
-  width: "min(100%, 760px)",
-  maxHeight: "min(84vh, 780px)",
-  overflow: "hidden",
+  width: "min(100%, 780px)",
+  maxHeight: "86vh",
   borderRadius: radius.lg,
   border: `1px solid ${colors.borderStrong}`,
-  background: "linear-gradient(165deg, rgba(20,32,40,0.98), rgba(10,18,25,0.98))",
-  boxShadow: "0 24px 70px rgba(0,0,0,0.36)"
+  background: "linear-gradient(160deg, rgba(15,22,30,0.98), rgba(8,14,20,0.98))",
+  boxShadow: "0 28px 90px rgba(0,0,0,0.45)",
+  display: "flex",
+  flexDirection: "column" as const,
+  overflow: "hidden"
  },
  trainingInfoHeader: {
   display: "flex",
-  alignItems: "center",
   justifyContent: "space-between",
+  alignItems: "center",
   gap: spacing.md,
-  marginBottom: 0,
-  padding: "14px 16px",
+  padding: "clamp(16px, 2.4vh, 24px)",
   borderBottom: `1px solid ${colors.border}`
  },
  trainingInfoEyebrow: {
@@ -1032,32 +1038,36 @@ const styles = {
   textTransform: "uppercase" as const
  },
  trainingInfoCloseButton: {
-  borderRadius: "999px",
-  border: `1px solid ${colors.border}`,
-  background: "rgba(255,255,255,0.03)",
-  color: colors.textSecondary,
-  padding: "8px 12px",
+  border: `1px solid ${colors.borderStrong}`,
+  borderRadius: radius.md,
+  background: "rgba(255,255,255,0.04)",
+  color: colors.textPrimary,
+  fontSize: "12px",
+  letterSpacing: "0.1em",
+  textTransform: "uppercase" as const,
+  fontWeight: 800,
+  padding: "9px 12px",
   cursor: "pointer",
-  fontSize: "11px",
-  fontWeight: 700,
-  letterSpacing: "0.12em",
-  textTransform: "uppercase" as const
  },
  trainingInfoModalBody: {
-  maxHeight: "calc(84vh - 70px)",
   overflowY: "auto" as const,
-  padding: "16px"
+  WebkitOverflowScrolling: "touch" as const,
+  padding: "clamp(16px, 2.4vh, 24px)",
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: spacing.md,
+  flex: 1
  },
  trainingInfoTitle: {
   ...typography.subtitle,
   fontSize: "24px",
-  marginBottom: spacing.xs
+  marginBottom: 0
  },
  trainingInfoText: {
   color: colors.textSecondary,
   fontSize: "14px",
   lineHeight: 1.6,
-  marginBottom: spacing.sm
+  margin: 0
  },
  trainingInfoLabel: {
   color: colors.primaryLight,
@@ -1065,14 +1075,14 @@ const styles = {
   fontWeight: 800,
   letterSpacing: "0.14em",
   textTransform: "uppercase" as const,
-  marginTop: spacing.sm,
-  marginBottom: "6px"
+  marginTop: 0,
+  marginBottom: 0
  },
  trainingInfoList: {
   margin: 0,
   paddingLeft: "18px",
   display: "grid",
-  gap: "6px"
+  gap: "10px"
  },
  trainingInfoListItem: {
   color: colors.textSecondary,

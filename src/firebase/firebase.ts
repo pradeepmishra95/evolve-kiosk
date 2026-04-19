@@ -3,16 +3,6 @@ import { getFirestore } from "firebase/firestore"
 import { getAuth } from "firebase/auth"
 import { getStorage } from "firebase/storage"
 
-const firebaseDefaultConfig: FirebaseOptions = {
-  apiKey: "AIzaSyD8j2g1_fY0622wmXmhXBMXd9UVuH7XG0Y",
-  authDomain: "evolve-kiosk.firebaseapp.com",
-  projectId: "evolve-kiosk",
-  storageBucket: "evolve-kiosk.firebasestorage.app",
-  messagingSenderId: "1023763588652",
-  appId: "1:1023763588652:web:65b67d5e2846dba09b9389",
-  measurementId: "G-L5D8WDMG88"
-}
-
 const firebaseEnvConfig = {
  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY?.trim() || "",
  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN?.trim() || "",
@@ -32,18 +22,23 @@ const requiredFirebaseEnvKeys = [
  "appId"
 ] as const
 
-const hasCompleteFirebaseEnvConfig = requiredFirebaseEnvKeys.every((key) => Boolean(firebaseEnvConfig[key]))
-const hasPartialFirebaseEnvConfig = requiredFirebaseEnvKeys.some((key) => Boolean(firebaseEnvConfig[key]))
+const missingFirebaseEnvKeys = requiredFirebaseEnvKeys.filter((key) => !firebaseEnvConfig[key])
 
-if (hasPartialFirebaseEnvConfig && !hasCompleteFirebaseEnvConfig && process.env.NODE_ENV !== "production") {
- console.warn(
-  "Firebase client env config is incomplete. Falling back to the bundled kiosk Firebase config."
+if (missingFirebaseEnvKeys.length > 0) {
+ throw new Error(
+  `Missing Firebase client environment variables: ${missingFirebaseEnvKeys.join(", ")}. Add them to .env.local.`
  )
 }
 
-const firebaseConfig: FirebaseOptions = hasCompleteFirebaseEnvConfig
- ? firebaseEnvConfig
- : firebaseDefaultConfig
+const firebaseConfig: FirebaseOptions = {
+ apiKey: firebaseEnvConfig.apiKey,
+ authDomain: firebaseEnvConfig.authDomain,
+ projectId: firebaseEnvConfig.projectId,
+ storageBucket: firebaseEnvConfig.storageBucket,
+ messagingSenderId: firebaseEnvConfig.messagingSenderId,
+ appId: firebaseEnvConfig.appId,
+ measurementId: firebaseEnvConfig.measurementId
+}
 
 // Reuse Firebase apps during HMR/dev reloads instead of re-initializing them.
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig)

@@ -19,6 +19,24 @@ import {
  getRelatedTrainingType,
 } from "../ProgramSelection/planSelectionHelpers"
 
+const DURATION_SORT_ORDER: Record<string, number> = {
+ "1 Day": 0,
+ "1 Session": 1,
+ "Free Trial": 2,
+ "1 Week": 3,
+ "Monthly": 4,
+ "Quarterly": 5,
+ "Half Yearly": 6,
+ "Yearly": 7,
+}
+
+const sortPricingByDuration = <T extends { duration: string }>(pricing: T[]): T[] =>
+ [...pricing].sort((a, b) => {
+  const orderA = DURATION_SORT_ORDER[normalizeDurationLabel(a.duration)] ?? 99
+  const orderB = DURATION_SORT_ORDER[normalizeDurationLabel(b.duration)] ?? 99
+  return orderA - orderB
+ })
+
 const isPersonalTrainingPlan = (plan: ProgramPlan) =>
  plan.type === "personal" || matchesLabel(plan.name, "Personal Training")
 
@@ -61,8 +79,13 @@ export default function PlanSelectionScreen() {
   ? `${selectedPlanInfo.programName} ${selectedPlan.name}`.trim()
   : selectedPlanName
 
+ const sortedPlanPricing = useMemo(
+  () => sortPricingByDuration(selectedPlan?.pricing ?? []),
+  [selectedPlan]
+ )
+
  const initialPricingIndex = useMemo(() => {
-  if (!selectedPlan?.pricing?.length) {
+  if (!sortedPlanPricing.length) {
    return 0
   }
 
@@ -72,12 +95,12 @@ export default function PlanSelectionScreen() {
    return 0
   }
 
-  const matchedIndex = selectedPlan.pricing.findIndex(
+  const matchedIndex = sortedPlanPricing.findIndex(
    (option) => normalizeDurationLabel(option.duration) === normalizedDuration
   )
 
   return matchedIndex >= 0 ? matchedIndex : 0
- }, [duration, selectedPlan])
+ }, [duration, sortedPlanPricing])
 
  const [selectedPricingIndex, setSelectedPricingIndex] = useState(initialPricingIndex)
  const [selectedSchedulePeriod, setSelectedSchedulePeriod] = useState("")
@@ -90,7 +113,7 @@ export default function PlanSelectionScreen() {
  }, [initialPricingIndex])
 
  const selectedMainPricing = selectedPlan
-  ? resolvePlanPricing(selectedPlan, selectedPlan?.pricing?.[selectedPricingIndex]?.duration)
+  ? resolvePlanPricing(selectedPlan, sortedPlanPricing[selectedPricingIndex]?.duration)
   : null
  const addonPlans = useMemo(
   () =>
@@ -107,7 +130,8 @@ export default function PlanSelectionScreen() {
  const priceBreakdown = buildPriceBreakdown(
   "Main Plan",
   mainPlanPrice,
-  selectedAddonPlans
+  selectedAddonPlans,
+  selectedMainPricing?.originalPrice
  )
 
  const selectedPlanScheduleOptions = selectedPlan
@@ -180,7 +204,7 @@ export default function PlanSelectionScreen() {
    batchTime ||
    getTimingsForPeriod(selectedPlan.timings ?? [], resolvedBatchType)[0] ||
    ""
-  const selectedPricing = selectedPlan.pricing?.[selectedPricingIndex] || selectedPlan.pricing?.[0]
+  const selectedPricing = sortedPlanPricing[selectedPricingIndex] || sortedPlanPricing[0]
   const nextMainPlanPrice = selectedPricing?.price ?? 0
   const nextAddonPlans = addonPlans.filter((plan) => selectedAddOnIds.includes(plan.id))
   const nextAddonTotal = nextAddonPlans.reduce((total, addon) => total + addon.pricing.price, 0)
@@ -192,7 +216,6 @@ export default function PlanSelectionScreen() {
    setData({
     selectedPlanId: selectedPlan.id,
     purpose: "trial",
-    status: "trial",
     program: selectedPlan.name,
     days: nextDays,
     duration: trialPricing.duration,
@@ -219,6 +242,7 @@ export default function PlanSelectionScreen() {
     duration: selectedPricing?.duration || selectedPlan.pricing?.[0]?.duration || "",
     price: nextTotalPrice,
     mainPlanPrice: nextMainPlanPrice,
+    mainPlanOriginalPrice: selectedPricing?.originalPrice ?? 0,
     selectedAddOnIds: [],
     batchType: resolvedBatchType,
     batchTime: resolvedBatchTime,
@@ -241,6 +265,7 @@ export default function PlanSelectionScreen() {
     duration: selectedPricing?.duration || selectedPlan.pricing?.[0]?.duration || "Monthly",
     price: nextTotalPrice,
     mainPlanPrice: nextMainPlanPrice,
+    mainPlanOriginalPrice: selectedPricing?.originalPrice ?? 0,
     selectedAddOnIds,
     batchType: resolvedBatchType,
     batchTime: resolvedBatchTime,
@@ -283,6 +308,7 @@ export default function PlanSelectionScreen() {
    duration: selectedPricing?.duration || selectedPlan.pricing?.[0]?.duration || "Monthly",
    price: nextTotalPrice,
    mainPlanPrice: nextMainPlanPrice,
+   mainPlanOriginalPrice: selectedPricing?.originalPrice ?? 0,
    selectedAddOnIds,
    batchType: resolvedBatchType,
    batchTime: resolvedBatchTime,
@@ -358,7 +384,7 @@ export default function PlanSelectionScreen() {
         gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))"
        }}
       >
-       {selectedPlan?.pricing?.map((pricing, index) => (
+       {sortedPlanPricing.map((pricing, index) => (
         <ChoiceCard
          key={`${pricing.duration}-${pricing.price}`}
          title={pricing.duration}
@@ -392,12 +418,18 @@ export default function PlanSelectionScreen() {
       >
        {addonPlans.map((plan, index) => {
         const isSelected = selectedAddOnIds.includes(plan.id)
+        const hasAddonDiscount = plan.pricing.originalPrice !== undefined && plan.pricing.originalPrice > plan.pricing.price
 
         return (
          <ChoiceCard
           key={plan.id}
           title={plan.name}
           subtitle={`${formatCurrency(plan.pricing.price)}${plan.pricing.duration ? ` · ${plan.pricing.duration}` : ""}`}
+          footer={
+           hasAddonDiscount ? (
+            <p style={styles.pricingOriginal}>MRP {formatCurrency(plan.pricing.originalPrice!)}</p>
+           ) : undefined
+          }
           selected={isSelected}
           badgeLabel={isSelected ? "Added" : index === 0 ? "Add" : "Pick"}
           centered={false}
@@ -417,7 +449,14 @@ export default function PlanSelectionScreen() {
        {priceBreakdown.map((item) => (
         <div key={item.label} style={styles.breakdownRow}>
          <span style={styles.breakdownLabel}>{item.label}</span>
-         <span style={styles.breakdownValue}>{formatCurrency(item.amount)}</span>
+         <span style={{ ...styles.breakdownValue, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" }}>
+          {item.originalAmount !== undefined && (
+           <span style={{ fontSize: "12px", textDecoration: "line-through", textDecorationColor: "#E85A5A", textDecorationThickness: "1.5px", color: "#E85A5A", fontWeight: 400 }}>
+            {formatCurrency(item.originalAmount)}
+           </span>
+          )}
+          {formatCurrency(item.amount)}
+         </span>
         </div>
        ))}
 
@@ -507,12 +546,12 @@ export default function PlanSelectionScreen() {
       onClick={confirmSelectedPlan}
       style={styles.primaryButton}
      >
-      {purpose === "trial"
-       ? "Book Trial"
-       : purpose === "renew"
+     {purpose === "trial"
+      ? "Book Trial"
+      : purpose === "renew"
         ? "Continue Renewal"
         : purpose === "enquiry"
-         ? "Continue with Enquiry"
+         ? "Continue"
          : "Continue to Review"}
      </button>
     </div>

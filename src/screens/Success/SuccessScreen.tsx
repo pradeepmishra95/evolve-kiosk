@@ -12,43 +12,10 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { trackKioskSessionCompletion } from "../../services/kioskSessions"
 import { getDurationDays } from "../../utils/duration"
 import { createPaymentRecord } from "../../services/paymentRecords"
-import { formatScheduleDate } from "../../utils/schedule"
 import { getPhoneDocumentId } from "../../utils/validation"
 import { TRIAL_FEE } from "../../utils/trialPricing"
 import { getPaymentMethodLabel, getSplitPaymentMethodLabel } from "../../utils/payment"
-
-const sendWhatsAppConfirmation = async (payload: {
- phone: string
- countryCode: string
- name: string
- purpose: string
- program: string
- duration: string
- batchType: string
- batchTime: string
-}) => {
- const response = await fetch("/api/whatsapp/confirmation", {
-  method: "POST",
-  headers: {
-   "Content-Type": "application/json"
-  },
-  body: JSON.stringify(payload)
- })
-
- const payloadData = await response.json().catch(() => null)
-
- if (response.ok) {
-  return {
-   ok: true,
-   payload: payloadData
-  }
- }
-
- return {
-  ok: false,
-  payload: payloadData
- }
-}
+import { saveEnquirySubmission } from "../../services/enquirySubmission"
 
 export default function SuccessScreen() {
 
@@ -67,29 +34,6 @@ export default function SuccessScreen() {
 
  const [loading,setLoading] = useState(false)
  const hasAutoSubmittedRef = useRef(false)
-
- const saveWhatsAppStatus = async (
-  phone: string,
-  status: "sent" | "skipped" | "failed" | "not_applicable",
-  details?: {
-   reason?: string
-   provider?: string
-   response?: unknown
-  }
- ) => {
-  await setDoc(
-   doc(db, "users", phone),
-   {
-    whatsappConfirmationStatus: status,
-    whatsappConfirmationReason: details?.reason || "",
-    whatsappConfirmationProvider: details?.provider || "",
-    whatsappConfirmationResponse: details?.response || null,
-    whatsappConfirmationCheckedAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
-   },
-   { merge: true }
-  )
- }
 
  const handleFinish = useCallback(async () => {
   if (hasAutoSubmittedRef.current) {
@@ -118,63 +62,35 @@ export default function SuccessScreen() {
    }
 
    if (data.purpose === "enquiry") {
-    await setDoc(
-     doc(db, "users", phoneDocId),
-     {
-      name: data.name,
-      phone: data.phone,
-      countryCode: data.countryCode,
-      dateOfBirth: data.dateOfBirth,
-      lookingFor: data.lookingFor,
-      referenceSource: data.referenceSource,
-      age: data.age,
-      gender: data.gender,
-      purpose: "enquiry",
-      status: "enquiry",
-      primaryGoal: data.primaryGoal || data.program || data.exerciseType,
-      enquiryMessage: data.enquiryMessage,
-      experience: data.experience,
-      priorExerciseExperience: data.priorExerciseExperience,
-      priorExerciseActivity: data.priorExerciseActivity,
-      priorExerciseDuration: data.priorExerciseDuration,
-      lastExerciseTime: data.lastExerciseTime,
-      injury: data.injury,
-      injuryDetails: data.injury ? data.injuryDetails : "",
-      exerciseType: data.exerciseType,
-      program: data.program,
-      days: data.days,
-      duration: data.duration,
-      batchType: data.batchType,
-      batchTime: data.batchTime,
-      batchDate: data.batchDate,
-      followUp:
-       data.followUpDate || data.followUpTime
-        ? {
-         date: data.followUpDate,
-         time: data.followUpTime
-        }
-        : null,
-      price: data.price,
-      ...staffMetadata,
-      enquiryStatus: "new",
-      enquirySource: "kiosk",
-      enquiryCreatedAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-     },
-     { merge: true }
-    )
-
-    void trackKioskSessionCompletion(staffMetadata.staffSessionId, {
-     purpose: data.purpose,
-     program: data.program
-    }).catch((error) => {
-     console.error("Kiosk session tracking error:", error)
-    })
-
-    void saveWhatsAppStatus(phoneDocId, "not_applicable", {
-     reason: "enquiry_flow"
-    }).catch((error) => {
-     console.error("WhatsApp status save error:", error)
+    await saveEnquirySubmission({
+     name: data.name,
+     phone: data.phone,
+     countryCode: data.countryCode,
+     dateOfBirth: data.dateOfBirth,
+     lookingFor: data.lookingFor,
+     referenceSource: data.referenceSource,
+     age: data.age,
+     gender: data.gender,
+     primaryGoal: data.primaryGoal,
+     enquiryMessage: data.enquiryMessage,
+     experience: data.experience,
+     priorExerciseExperience: data.priorExerciseExperience,
+     priorExerciseActivity: data.priorExerciseActivity,
+     priorExerciseDuration: data.priorExerciseDuration,
+     lastExerciseTime: data.lastExerciseTime,
+     injury: data.injury,
+     injuryDetails: data.injuryDetails,
+     exerciseType: data.exerciseType,
+     program: data.program,
+     days: data.days,
+     duration: data.duration,
+     batchType: data.batchType,
+     batchTime: data.batchTime,
+     batchDate: data.batchDate,
+     followUpDate: data.followUpDate,
+     followUpTime: data.followUpTime,
+     price: data.price,
+     staffUser
     })
 
     return
@@ -213,10 +129,12 @@ export default function SuccessScreen() {
         paymentMethod: data.paymentMethod,
         paymentStatus: data.paymentStatus,
         isPartialPayment: data.isPartialPayment,
-        paidAmount: data.isPartialPayment ? data.paidAmount : undefined,
-        dueAmount: data.isPartialPayment ? data.dueAmount : undefined,
-        paymentMethod1: data.isPartialPayment ? data.paymentMethod1 : undefined,
-        paymentMethod2: data.isPartialPayment ? data.paymentMethod2 : undefined,
+        isSplitPayment: data.isSplitPayment,
+        paidAmount: (data.isPartialPayment || data.isSplitPayment) ? data.paidAmount : undefined,
+        dueAmount: (data.isPartialPayment || data.isSplitPayment) ? data.dueAmount : undefined,
+        partialPaymentDueDate: data.isPartialPayment ? data.partialPaymentDueDate : undefined,
+        paymentMethod1: (data.isPartialPayment || data.isSplitPayment) ? data.paymentMethod1 : undefined,
+        paymentMethod2: (data.isPartialPayment || data.isSplitPayment) ? data.paymentMethod2 : undefined,
         paymentSurchargeAmount: data.paymentSurchargeAmount || undefined,
         paymentTotalAmount: finalPaymentAmount,
         consentRequestId: data.consentRequestId,
@@ -284,10 +202,12 @@ export default function SuccessScreen() {
      paymentMethod: data.paymentMethod,
      paymentStatus: data.paymentStatus,
      isPartialPayment: data.isPartialPayment,
-     paidAmount: data.isPartialPayment ? data.paidAmount : undefined,
-     dueAmount: data.isPartialPayment ? data.dueAmount : undefined,
-     paymentMethod1: data.isPartialPayment ? data.paymentMethod1 : undefined,
-     paymentMethod2: data.isPartialPayment ? data.paymentMethod2 : undefined,
+     isSplitPayment: data.isSplitPayment,
+     paidAmount: (data.isPartialPayment || data.isSplitPayment) ? data.paidAmount : undefined,
+     dueAmount: (data.isPartialPayment || data.isSplitPayment) ? data.dueAmount : undefined,
+     partialPaymentDueDate: data.isPartialPayment ? data.partialPaymentDueDate : undefined,
+     paymentMethod1: (data.isPartialPayment || data.isSplitPayment) ? data.paymentMethod1 : undefined,
+     paymentMethod2: (data.isPartialPayment || data.isSplitPayment) ? data.paymentMethod2 : undefined,
      paymentSurchargeAmount: data.paymentSurchargeAmount || undefined,
      paymentTotalAmount: finalPaymentAmount,
      consentRequestId: data.consentRequestId,
@@ -335,55 +255,7 @@ export default function SuccessScreen() {
     console.error("Kiosk session tracking error:", error)
    })
 
-   void (async () => {
-    try {
-     const whatsappResult = await sendWhatsAppConfirmation({
-      phone: data.phone,
-      countryCode: data.countryCode,
-      name: data.name,
-      purpose: data.purpose,
-      program: data.program,
-      duration: data.duration,
-      batchType: data.batchType,
-      batchTime: data.batchDate
-       ? `${formatScheduleDate(data.batchDate)} | ${data.batchTime}`
-       : data.batchTime
-     })
-
-     if (whatsappResult.ok) {
-      const responsePayload =
-       whatsappResult.payload && typeof whatsappResult.payload === "object"
-        ? (whatsappResult.payload as Record<string, unknown>)
-        : null
-
-      await saveWhatsAppStatus(phoneDocId, responsePayload?.skipped ? "skipped" : "sent", {
-       reason:
-        typeof responsePayload?.reason === "string" ? responsePayload.reason : "",
-       provider:
-        typeof responsePayload?.provider === "string" ? responsePayload.provider : "",
-       response: whatsappResult.payload
-      })
-     } else {
-      const responsePayload =
-       whatsappResult.payload && typeof whatsappResult.payload === "object"
-        ? (whatsappResult.payload as Record<string, unknown>)
-        : null
-
-      await saveWhatsAppStatus(phoneDocId, "failed", {
-       reason:
-        typeof responsePayload?.error === "string" ? responsePayload.error : "request_failed",
-       response: whatsappResult.payload
-      })
-     }
-    } catch (error) {
-     console.error("WhatsApp confirmation error:", error)
-
-     await saveWhatsAppStatus(phoneDocId, "failed", {
-      reason: error instanceof Error ? error.message : "unexpected_error"
-     })
-    }
-   })()
-   } catch (error) {
+} catch (error) {
    console.error("Error saving user:", error)
   } finally {
    setLoading(false)

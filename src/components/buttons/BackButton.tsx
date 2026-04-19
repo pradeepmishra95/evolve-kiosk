@@ -1,28 +1,69 @@
 "use client"
 
-import { useNavigate } from "@/navigation/useAppNavigation"
+import { usePathname, useRouter } from "next/navigation"
+import { getPreviousRoutePath } from "../../navigation/routeHistory"
+import { useUserStore } from "../../store/userStore"
 import { colors } from "../../styles/GlobalStyles"
+
+function getBackRoute(pathname: string, purpose: string, status: string): string | null {
+ switch (pathname) {
+  case "/phone":
+   return "/"
+  case "/return-user":
+   return "/phone"
+  case "/user-details":
+   return "/phone"
+  case "/profile-photo":
+   return "/user-details"
+  case "/program":
+   return "/profile-photo"
+  case "/plan":
+   // enquiry user who selected enroll comes here from /review
+   return status === "enquiry" || purpose === "enquiry" ? "/review" : "/program"
+  case "/review":
+   return "/plan"
+  case "/payment":
+   return "/review"
+  case "/payment/cash":
+  case "/payment/upi":
+   return "/payment"
+  case "/consent":
+   return "/payment"
+  default:
+   return null
+ }
+}
 
 interface Props {
  label?: string
- fallbackHref?: string
- className?: string
 }
 
-export default function BackButton({
- label = "Back",
- fallbackHref = "/",
- className
-}: Props) {
- const navigate = useNavigate()
+export default function BackButton({ label = "← Back" }: Props) {
+ const router = useRouter()
+ const pathname = usePathname()
+ const purpose = useUserStore((state) => state.purpose)
+ const status = useUserStore((state) => state.status)
+ const reset = useUserStore((state) => state.reset)
+
+ const backRoute = getBackRoute(pathname, purpose, status)
+
+ if (!backRoute) {
+  return null
+ }
 
  const handleBack = () => {
-  if (typeof window !== "undefined" && window.history.length > 1) {
-   navigate(-1)
+  if (pathname === "/phone") {
+   reset()
+  }
+
+  const previousRoutePath = getPreviousRoutePath(pathname)
+
+  if (previousRoutePath) {
+   router.back()
    return
   }
 
-  navigate(fallbackHref, { replace: true })
+  router.replace(backRoute)
  }
 
  return (
@@ -30,7 +71,6 @@ export default function BackButton({
    type="button"
    onClick={handleBack}
    aria-label={label}
-   className={className}
    style={{
     display: "inline-flex",
     alignItems: "center",
@@ -48,7 +88,7 @@ export default function BackButton({
     boxShadow: "0 10px 24px rgba(0,0,0,0.18)"
    }}
   >
-   <span>{label}</span>
+   {label}
   </button>
  )
 }

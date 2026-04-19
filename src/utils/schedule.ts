@@ -4,6 +4,8 @@ export interface ScheduleDateOption {
  shortLabel: string
 }
 
+const TRIAL_BLOCKED_WEEKDAY_SET = new Set([0, 3, 6])
+
 const formatDateValue = (date: Date) => {
  const year = date.getFullYear()
  const month = String(date.getMonth() + 1).padStart(2, "0")
@@ -41,6 +43,16 @@ export const getUpcomingScheduleDates = (count = 7): ScheduleDateOption[] => {
  }
 
  return options
+}
+
+export const isTrialBookingDateAllowed = (value: string | Date) => {
+ const date = typeof value === "string" ? new Date(`${value}T00:00:00`) : value
+
+ if (Number.isNaN(date.getTime())) {
+  return false
+ }
+
+ return !TRIAL_BLOCKED_WEEKDAY_SET.has(date.getDay())
 }
 
 export const formatScheduleDate = (value: string) => {

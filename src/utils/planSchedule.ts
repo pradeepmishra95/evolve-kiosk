@@ -94,6 +94,15 @@ export const normalizeDurationLabel = (value: string): MembershipDuration => {
  }
 
  if (
+  normalized === "1week" ||
+  normalized === "oneweek" ||
+  normalized === "week" ||
+  normalized === "weekly"
+ ) {
+  return "1 Week"
+ }
+
+ if (
   normalized === "1session" ||
   normalized === "onesession" ||
   normalized === "session" ||

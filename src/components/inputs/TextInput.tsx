@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes } from "react"
+import type { FocusEventHandler, InputHTMLAttributes, RefObject } from "react"
 import { colors, spacing, radius, fontSize } from "../../styles/GlobalStyles"
 
 interface Props {
@@ -14,6 +14,9 @@ interface Props {
  min?: string
  max?: string
  maxLength?: number
+ inputRef?: RefObject<HTMLInputElement | null>
+ onFocus?: FocusEventHandler<HTMLInputElement>
+ onBlur?: FocusEventHandler<HTMLInputElement>
 }
 
 export default function TextInput({
@@ -28,7 +31,10 @@ export default function TextInput({
  autoComplete,
  min,
  max,
- maxLength
+ maxLength,
+ inputRef,
+ onFocus,
+ onBlur
 }: Props) {
 
  return (
@@ -50,10 +56,13 @@ export default function TextInput({
    </label>
 
    <input
+    ref={inputRef}
     type={type}
     value={value}
     placeholder={placeholder}
     onChange={(e) => onChange(e.target.value)}
+    onFocus={onFocus}
+    onBlur={onBlur}
     inputMode={inputMode}
     autoComplete={autoComplete}
     min={min}
@@ -62,7 +71,7 @@ export default function TextInput({
     style={{
      width: "100%",
      padding: "13px 16px",
-     fontSize: "15px",
+     fontSize: "16px",
      border: `1px solid ${error ? "#D97C6C" : colors.border}`,
      borderRadius: radius.md,
      outline: "none",

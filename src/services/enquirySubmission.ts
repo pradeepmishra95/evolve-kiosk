@@ -36,21 +36,6 @@ interface EnquirySubmissionPayload {
  staffUser: StaffSessionUser | null
 }
 
-const saveWhatsAppStatus = async (phoneDocId: string) => {
- await setDoc(
-  doc(db, "users", phoneDocId),
-  {
-   whatsappConfirmationStatus: "not_applicable",
-   whatsappConfirmationReason: "enquiry_flow",
-   whatsappConfirmationProvider: "",
-   whatsappConfirmationResponse: null,
-   whatsappConfirmationCheckedAt: serverTimestamp(),
-   updatedAt: serverTimestamp()
-  },
-  { merge: true }
- )
-}
-
 export const saveEnquirySubmission = async (payload: EnquirySubmissionPayload) => {
  const phoneDocId = getPhoneDocumentId(payload.phone, payload.countryCode)
  const staffMetadata = {
@@ -60,56 +45,64 @@ export const saveEnquirySubmission = async (payload: EnquirySubmissionPayload) =
   staffSessionId: payload.staffUser?.sessionId || ""
  }
 
- await setDoc(
-  doc(db, "users", phoneDocId),
-  {
-   name: payload.name,
-   phone: payload.phone,
-   countryCode: payload.countryCode,
-   dateOfBirth: payload.dateOfBirth,
-   lookingFor: payload.lookingFor,
-   referenceSource: payload.referenceSource,
-   age: payload.age,
-   gender: payload.gender,
-   purpose: "enquiry",
-   status: "enquiry",
-   primaryGoal: payload.primaryGoal || payload.program || payload.exerciseType,
-   enquiryMessage: payload.enquiryMessage,
-   experience: payload.experience,
-   priorExerciseExperience: payload.priorExerciseExperience,
-   priorExerciseActivity: payload.priorExerciseActivity,
-   priorExerciseDuration: payload.priorExerciseDuration,
-   lastExerciseTime: payload.lastExerciseTime,
-   injury: payload.injury,
-   injuryDetails: payload.injury ? payload.injuryDetails : "",
-   exerciseType: payload.exerciseType,
-   program: payload.program,
-   days: payload.days,
-   duration: payload.duration,
-   batchType: payload.batchType,
-   batchTime: payload.batchTime,
-   batchDate: payload.batchDate,
-   followUp:
-    payload.followUpDate || payload.followUpTime
+   const docData: Record<string, unknown> = {
+    name: payload.name,
+    phone: payload.phone,
+    countryCode: payload.countryCode,
+    dateOfBirth: payload.dateOfBirth,
+    lookingFor: payload.lookingFor,
+    referenceSource: payload.referenceSource,
+    age: payload.age,
+    gender: payload.gender,
+    primaryGoal: payload.primaryGoal || payload.program || payload.exerciseType,
+    enquiryMessage: payload.enquiryMessage,
+    experience: payload.experience,
+    priorExerciseExperience: payload.priorExerciseExperience,
+    priorExerciseActivity: payload.priorExerciseActivity,
+    priorExerciseDuration: payload.priorExerciseDuration,
+    lastExerciseTime: payload.lastExerciseTime,
+    injury: payload.injury,
+    injuryDetails: payload.injury ? payload.injuryDetails : "",
+    exerciseType: payload.exerciseType,
+    program: payload.program,
+    days: payload.days,
+    duration: payload.duration,
+    batchType: payload.batchType,
+    batchTime: payload.batchTime,
+    batchDate: payload.batchDate,
+    followUp:
+     payload.followUpDate || payload.followUpTime
+      ? {
+       date: payload.followUpDate,
+       time: payload.followUpTime
+      }
+      : null,
+    price: payload.price,
+    ...staffMetadata,
+    ...(payload.followUpDate && payload.followUpTime
      ? {
-      date: payload.followUpDate,
-      time: payload.followUpTime
-     }
-     : null,
-   price: payload.price,
-   ...staffMetadata,
-   enquiryStatus: "new",
-   enquirySource: "kiosk",
-   enquiryCreatedAt: serverTimestamp(),
-   updatedAt: serverTimestamp()
-  },
-  { merge: true }
- )
+        enquiryStatus: "new",
+        enquirySource: "kiosk",
+        enquiryCreatedAt: serverTimestamp()
+       }
+     : {}),
+    updatedAt: serverTimestamp()
+   }
+
+   // Only set purpose/status if explicitly provided in the payload — do not overwrite existing value otherwise
+   if ((payload as any).purpose) {
+    docData.purpose = (payload as any).purpose
+   }
+
+   if ((payload as any).status) {
+    docData.status = (payload as any).status
+   }
+
+   await setDoc(doc(db, "users", phoneDocId), docData, { merge: true })
 
  await trackKioskSessionCompletion(staffMetadata.staffSessionId, {
-  purpose: "enquiry",
+  purpose: (payload as any).purpose || "enquiry",
   program: payload.program
  })
 
- await saveWhatsAppStatus(phoneDocId)
 }
