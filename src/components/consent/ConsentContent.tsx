@@ -1,11 +1,11 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { ConfirmationResult, RecaptchaVerifier } from "firebase/auth"
 import { useNavigate } from "@/navigation/useAppNavigation"
 import PrimaryButton from "../buttons/PrimaryButton"
 import TextInput from "../inputs/TextInput"
 import SelectInput from "../inputs/SelectInput"
+import { usePhoneOtp } from "../../hooks/usePhoneOtp"
 import { useUserStore } from "../../store/userStore"
 import { colors, radius, spacing, typography } from "../../styles/GlobalStyles"
 import {
@@ -16,13 +16,6 @@ import {
  CONSENT_TITLE
 } from "../../consent/consentContent"
 import { validateName, validatePhoneNumber } from "../../utils/validation"
-import {
- cleanupConsentOtpAuth,
- clearConsentOtpRecaptcha,
- createConsentOtpRecaptcha,
- requestConsentOtp,
- verifyConsentOtp
-} from "../../services/consentOtp"
 
 const OTP_LENGTH = 6
 const normalizeOtpCode = (value: string) => value.replace(/\D/g, "").slice(0, OTP_LENGTH)
@@ -75,13 +68,11 @@ export default function ConsentContent({ onComplete }: ConsentContentProps) {
  const [otpCode, setOtpCode] = useState("")
  const [otpTargetNumber, setOtpTargetNumber] = useState("")
  const [otpStep, setOtpStep] = useState<"idle" | "sending" | "sent" | "verifying">("idle")
- const [hasPendingOtp, setHasPendingOtp] = useState(false)
+ const [otpEverSent, setOtpEverSent] = useState(false)
  const [keyboardInset, setKeyboardInset] = useState(0)
- const confirmationResultRef = useRef<ConfirmationResult | null>(null)
- const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null)
- const recaptchaContainerRef = useRef<HTMLDivElement | null>(null)
  const otpCardRef = useRef<HTMLDivElement | null>(null)
  const otpInputRef = useRef<HTMLInputElement | null>(null)
+ const { recaptchaContainerRef, sendOtp, verifyOtp, reset, hasConfirmationResult } = usePhoneOtp()
 
  const handleSuccess = useCallback(() => {
   if (onComplete) {
@@ -109,24 +100,14 @@ export default function ConsentContent({ onComplete }: ConsentContentProps) {
  }, [])
 
  const resetOtpSession = () => {
-  const hasPendingOtpSession = Boolean(
-   confirmationResultRef.current || recaptchaVerifierRef.current || otpStep !== "idle"
-  )
-
   setOtpStep("idle")
   setOtpCode("")
   setOtpTargetNumber("")
-  setHasPendingOtp(false)
-  confirmationResultRef.current = null
-  clearConsentOtpRecaptcha(recaptchaVerifierRef.current)
-  recaptchaVerifierRef.current = null
-
-  if (hasPendingOtpSession) {
-   void cleanupConsentOtpAuth()
-  }
+  setOtpEverSent(false)
+  reset()
  }
  const isOtpBusy = otpStep === "sending" || otpStep === "verifying"
- const isOtpSent = otpStep === "sent" && hasPendingOtp
+ const isOtpSent = otpStep === "sent" && hasConfirmationResult
 
  const canStartOtp = useMemo(() => {
   if (!agreedToTerms) {
@@ -160,15 +141,6 @@ export default function ConsentContent({ onComplete }: ConsentContentProps) {
    : isOtpSent
     ? !canVerifyOtp
     : !canStartOtp
-
- useEffect(() => {
-  return () => {
-   clearConsentOtpRecaptcha(recaptchaVerifierRef.current)
-   recaptchaVerifierRef.current = null
-   confirmationResultRef.current = null
-   void cleanupConsentOtpAuth()
-  }
- }, [])
 
  useEffect(() => {
   if (!isOtpSent) {
@@ -312,31 +284,27 @@ export default function ConsentContent({ onComplete }: ConsentContentProps) {
 
   setOtpStep("sending")
   setErrorMessage("")
-  const hasPendingConfirmation = hasPendingOtp
+  const hasPendingConfirmation = hasConfirmationResult
 
   try {
-   clearConsentOtpRecaptcha(recaptchaVerifierRef.current)
-   recaptchaVerifierRef.current = createConsentOtpRecaptcha(recaptchaContainerRef.current)
-
-   const confirmationResult = await requestConsentOtp(
+   const sendResult = await sendOtp(
     `+${otpRecipientValidation.phoneWithCountryCode}`,
-    recaptchaVerifierRef.current
    )
 
-   confirmationResultRef.current = confirmationResult
-   setHasPendingOtp(true)
+   if (!sendResult.ok) {
+    setOtpStep(hasPendingConfirmation ? "sent" : "idle")
+    setErrorMessage(sendResult.error)
+    return
+   }
+
    setOtpTargetNumber(otpRecipientValidation.formattedPhoneNumber)
    setOtpCode("")
+   setOtpEverSent(true)
    setOtpStep("sent")
    scrollOtpIntoView()
   } catch (error) {
-   if (!hasPendingConfirmation) {
-    setHasPendingOtp(false)
-   }
    setOtpStep(hasPendingConfirmation ? "sent" : "idle")
    setErrorMessage(error instanceof Error ? error.message : "Unable to send OTP right now.")
-   clearConsentOtpRecaptcha(recaptchaVerifierRef.current)
-   recaptchaVerifierRef.current = null
   }
  }
 
@@ -352,8 +320,7 @@ export default function ConsentContent({ onComplete }: ConsentContentProps) {
    return
   }
 
-  if (!confirmationResultRef.current) {
-   setHasPendingOtp(false)
+  if (!hasConfirmationResult) {
    setErrorMessage("Please send a new OTP before verifying.")
    setOtpStep("idle")
    return
@@ -368,7 +335,14 @@ export default function ConsentContent({ onComplete }: ConsentContentProps) {
   setErrorMessage("")
 
   try {
-   const verificationResult = await verifyConsentOtp(confirmationResultRef.current, otpCode)
+   const verificationResult = await verifyOtp(otpCode)
+
+   if (!verificationResult.ok) {
+    setOtpStep("sent")
+    setErrorMessage(verificationResult.error)
+    return
+   }
+
    const agreedAt = new Date().toISOString()
 
    setData({
@@ -403,10 +377,6 @@ export default function ConsentContent({ onComplete }: ConsentContentProps) {
     consentErrorMessage: ""
    })
 
-   confirmationResultRef.current = null
-   setHasPendingOtp(false)
-   clearConsentOtpRecaptcha(recaptchaVerifierRef.current)
-   recaptchaVerifierRef.current = null
    setOtpStep("idle")
    setOtpCode("")
    setOtpTargetNumber("")
@@ -589,7 +559,7 @@ export default function ConsentContent({ onComplete }: ConsentContentProps) {
       disabled={buttonDisabled}
       fullWidth
      />
-     {isOtpSent && !isConsentSigned && (
+     {otpEverSent && !isConsentSigned && (
       <button
        type="button"
        style={styles.secondaryButton}

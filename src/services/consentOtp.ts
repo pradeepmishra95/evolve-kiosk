@@ -9,8 +9,15 @@ import {
 import { consentOtpAuth } from "../firebase/firebase"
 
 let consentOtpPersistencePromise: Promise<void> | null = null
+const staleRecaptchaErrorCodes = new Set([
+ "auth/captcha-check-failed",
+ "auth/invalid-app-credential",
+ "auth/missing-app-credential"
+])
+const defaultConsentOtpErrorMessage =
+ "We could not complete OTP verification right now. Please try again."
 
-const ensureConsentOtpAuthReady = () => {
+export const ensureConsentOtpAuthReady = () => {
  if (!consentOtpPersistencePromise) {
   consentOtpPersistencePromise = setPersistence(consentOtpAuth, inMemoryPersistence)
  }
@@ -43,20 +50,66 @@ const mapConsentOtpError = (code?: string) => {
    return "Phone Authentication is not enabled in Firebase yet."
   case "auth/invalid-verification-code":
    return "The OTP entered is invalid. Please check and try again."
+  case "auth/invalid-verification-id":
+  case "auth/missing-verification-id":
+   return "This OTP session is no longer valid. Please send OTP again."
   case "auth/code-expired":
    return "The OTP has expired. Please request a new one."
   case "auth/session-expired":
    return "This OTP session expired. Please request a new OTP."
   case "auth/missing-verification-code":
    return "Please enter the OTP sent to the mobile number."
+  case "auth/invalid-credential":
+   return "This OTP verification attempt is no longer valid. Please send OTP again."
+  case "auth/invalid-recaptcha-token":
+  case "auth/missing-recaptcha-token":
+  case "auth/invalid-recaptcha-action":
+  case "auth/invalid-recaptcha-version":
+  case "auth/missing-recaptcha-version":
+  case "auth/recaptcha-not-enabled":
+   return "reCAPTCHA verification could not be completed. Please send OTP again."
+  case "auth/app-deleted":
+   return "The OTP session was reset. Please send OTP again."
+  case "auth/unauthorized-domain":
+   return "This kiosk domain is not authorized for Firebase OTP yet."
   default:
-   return "We could not complete OTP verification right now. Please try again."
+   return ""
  }
 }
 
-export const createConsentOtpRecaptcha = (container: HTMLElement) =>
+const getConsentOtpErrorCode = (error: unknown) =>
+ typeof error === "object" && error && "code" in error ? String(error.code) : ""
+
+export const getConsentOtpErrorDetails = (error: unknown) => {
+ const code = getConsentOtpErrorCode(error)
+ const mappedMessage = code ? mapConsentOtpError(code) : ""
+ const rawMessage = error instanceof Error ? error.message.trim() : ""
+ const looksLikeFirebaseCodeOnlyMessage =
+  rawMessage.startsWith("Firebase: Error (auth/") && rawMessage.endsWith(").")
+
+ return {
+  code,
+  message:
+   mappedMessage ||
+   (rawMessage && !looksLikeFirebaseCodeOnlyMessage
+    ? rawMessage
+    : code
+     ? `OTP verification failed (${code}). Please try again.`
+     : defaultConsentOtpErrorMessage)
+ }
+}
+
+export const isConsentOtpRecaptchaStale = (code?: string) => staleRecaptchaErrorCodes.has(code || "")
+
+export const createConsentOtpRecaptcha = (
+ container: HTMLElement | string,
+ options?: {
+  onExpired?: () => void
+ }
+) =>
  new RecaptchaVerifier(consentOtpAuth, container, {
-  size: "invisible"
+  size: "invisible",
+  "expired-callback": options?.onExpired
  })
 
 export const clearConsentOtpRecaptcha = (recaptchaVerifier?: RecaptchaVerifier | null) => {
@@ -79,8 +132,9 @@ export const requestConsentOtp = async (phoneNumber: string, recaptchaVerifier: 
   await cleanupConsentOtpAuth()
   return await signInWithPhoneNumber(consentOtpAuth, phoneNumber, recaptchaVerifier)
  } catch (error) {
-  const code = typeof error === "object" && error && "code" in error ? String(error.code) : ""
-  throw new Error(mapConsentOtpError(code))
+  const { code, message } = getConsentOtpErrorDetails(error)
+  console.error("[consentOtp] requestConsentOtp failed — code:", code, "| raw:", error)
+  throw new Error(message)
  }
 }
 
@@ -96,7 +150,8 @@ export const verifyConsentOtp = async (confirmationResult: ConfirmationResult, o
    uid: result.user.uid
   }
  } catch (error) {
-  const code = typeof error === "object" && error && "code" in error ? String(error.code) : ""
-  throw new Error(mapConsentOtpError(code))
+  const { code, message } = getConsentOtpErrorDetails(error)
+  console.error("[consentOtp] verifyConsentOtp failed — code:", code, "| raw:", error)
+  throw new Error(message)
  }
 }
