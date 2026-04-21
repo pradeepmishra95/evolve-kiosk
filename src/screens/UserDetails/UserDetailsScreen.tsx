@@ -217,8 +217,6 @@ export default function UserDetailsScreen() {
   priorExerciseDuration,
  lastExerciseTime,
  exerciseType,
- profilePhotoUrl,
- profilePhotoStoragePath,
  purpose,
  setData
  } = state

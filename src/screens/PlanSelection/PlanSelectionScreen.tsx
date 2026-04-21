@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { useNavigate } from "@/navigation/useAppNavigation"
 import Container from "../../layout/Container"
 import Grid from "../../layout/Grid"
@@ -102,15 +102,29 @@ export default function PlanSelectionScreen() {
   return matchedIndex >= 0 ? matchedIndex : 0
  }, [duration, sortedPlanPricing])
 
- const [selectedPricingIndex, setSelectedPricingIndex] = useState(initialPricingIndex)
+ const [selectedPricingDuration, setSelectedPricingDuration] = useState("")
  const [selectedSchedulePeriod, setSelectedSchedulePeriod] = useState("")
  const [selectedScheduleTime, setSelectedScheduleTime] = useState("")
  const addOnsSectionRef = useRef<HTMLDivElement | null>(null)
  const canShowAddOns = purpose !== "trial" && purpose !== "enquiry"
 
- useEffect(() => {
-  setSelectedPricingIndex(initialPricingIndex)
- }, [initialPricingIndex])
+ const selectedPricingIndex = useMemo(() => {
+  if (!sortedPlanPricing.length) {
+   return 0
+  }
+
+  if (selectedPricingDuration) {
+   const selectedDurationIndex = sortedPlanPricing.findIndex(
+    (option) => normalizeDurationLabel(option.duration) === normalizeDurationLabel(selectedPricingDuration)
+   )
+
+   if (selectedDurationIndex >= 0) {
+    return selectedDurationIndex
+   }
+  }
+
+  return initialPricingIndex
+ }, [initialPricingIndex, selectedPricingDuration, sortedPlanPricing])
 
  const selectedMainPricing = selectedPlan
   ? resolvePlanPricing(selectedPlan, sortedPlanPricing[selectedPricingIndex]?.duration)
@@ -397,7 +411,7 @@ export default function PlanSelectionScreen() {
          selected={selectedPricingIndex === index}
          badgeLabel={selectedPricingIndex === index ? "Selected" : index === 0 ? "Popular" : "Pick"}
          centered={false}
-         onClick={() => setSelectedPricingIndex(index)}
+         onClick={() => setSelectedPricingDuration(pricing.duration)}
         />
        ))}
       </Grid>

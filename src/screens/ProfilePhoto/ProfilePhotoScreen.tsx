@@ -40,11 +40,7 @@ export default function ProfilePhotoScreen() {
 
  const [photoUploading, setPhotoUploading] = useState(false)
  const [errorMessage, setErrorMessage] = useState("")
- const [statusMessage, setStatusMessage] = useState(
-  profilePhotoUrl || profilePhotoStoragePath
-   ? "Profile photo already saved."
-   : "Take a client profile photo to continue."
- )
+ const [statusMessage, setStatusMessage] = useState("")
  const [pendingBlob, setPendingBlob] = useState<Blob | null>(null)
  const [pendingFileName, setPendingFileName] = useState(PROFILE_PHOTO_FILE_NAME)
  const [pendingSource, setPendingSource] = useState<ProfilePhotoSource>("camera")
@@ -55,6 +51,10 @@ export default function ProfilePhotoScreen() {
 
  const displayPhotoUrl = draftPreviewUrl || profilePhotoUrl
  const hasSavedPhoto = Boolean(profilePhotoUrl || profilePhotoStoragePath)
+ const derivedStatusMessage = hasSavedPhoto
+  ? "Profile photo already saved."
+  : "Take a client profile photo to continue."
+ const displayStatusMessage = statusMessage || derivedStatusMessage
  const isRequiredFlow = status === "new" && purpose === "enroll"
  const canContinue = (!isRequiredFlow || hasSavedPhoto) && !photoUploading
  const phoneLabel = formatPhoneNumber(phone, countryCode) || phone || "-"
@@ -73,12 +73,6 @@ export default function ProfilePhotoScreen() {
    releaseDraftPreview()
   }
  }, [releaseDraftPreview])
-
- useEffect(() => {
-  if (profilePhotoUrl && !draftPreviewUrl) {
-   setStatusMessage("Profile photo already saved.")
-  }
- }, [draftPreviewUrl, profilePhotoUrl])
 
  const uploadPhoto = async (blob: Blob, source: ProfilePhotoSource, fileName: string) => {
   if (!name || !phone) {
@@ -218,7 +212,7 @@ export default function ProfilePhotoScreen() {
 
        <div style={styles.statusCard}>
         <span style={styles.statusLabel}>Status</span>
-        <p style={styles.statusText}>{statusMessage}</p>
+        <p style={styles.statusText}>{displayStatusMessage}</p>
        </div>
 
        {errorMessage && <p style={styles.errorText}>{errorMessage}</p>}

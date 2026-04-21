@@ -153,57 +153,35 @@ export default function ReviewScreen() {
   data.mainPlanOriginalPrice ||
   ("originalPrice" in (selectedMainPricing ?? {}) ? (selectedMainPricing as { originalPrice?: number }).originalPrice : undefined) ||
   0
- const resolvedTimings = useMemo(() => selectedPlan?.timings ?? [], [selectedPlan?.timings])
- const scheduleDays = useMemo(() => selectedPlan?.scheduleDays ?? [], [selectedPlan?.scheduleDays])
+ const resolvedTimings = selectedPlan?.timings ?? []
+ const scheduleDays = selectedPlan?.scheduleDays ?? []
  const schedulePeriodOptions = getSchedulePeriodOptions(resolvedTimings)
  const resolvedBookingBatchType = data.batchType || schedulePeriodOptions[0]?.value || "custom"
- const bookingTimings = useMemo(
-  () => getTimingsForPeriod(resolvedTimings, resolvedBookingBatchType),
-  [resolvedBookingBatchType, resolvedTimings]
- )
- const bookingTimeOptions = useMemo(
-  () => (bookingTimings.length > 0 ? bookingTimings : data.batchTime ? [data.batchTime] : []),
-  [bookingTimings, data.batchTime]
- )
- const bookingTimeSlotOptions = useMemo<DialogTimeOption[]>(
-  () =>
-   bookingTimeOptions.map((timing, index) => ({
-    value: timing,
-    label: timing,
-    description: index === 0 ? "Recommended" : "Available"
-   })),
-  [bookingTimeOptions]
- )
- const bookingDateOptions = useMemo(() => {
-  if (!isBookingFlow) {
-   return []
-  }
-
-  const count = effectivePurpose === "trial" ? 40 : 14
-
-  if (scheduleDays.length > 0) {
-   return getUpcomingScheduleDatesForDays(scheduleDays, count)
-  }
-
-  return getUpcomingScheduleDates(count)
- }, [effectivePurpose, isBookingFlow, scheduleDays])
- const trialDateOptions = useMemo<DialogDateOption[]>(
-  () =>
-   bookingDateOptions
-    .filter((option) => isTrialBookingDateAllowed(option.value))
-    .slice(0, 10)
-    .map((option, index) => ({
-     ...option,
-     disabled: bookingTimeSlotOptions.length === 0,
-     description:
-      bookingTimeSlotOptions.length > 0
-       ? index === 0
-        ? `${bookingTimeSlotOptions.length} slots · soonest`
-        : `${bookingTimeSlotOptions.length} slots`
-       : "No slots"
-    })),
-  [bookingDateOptions, bookingTimeSlotOptions.length]
- )
+ const bookingTimings = getTimingsForPeriod(resolvedTimings, resolvedBookingBatchType)
+ const bookingTimeOptions = bookingTimings.length > 0 ? bookingTimings : data.batchTime ? [data.batchTime] : []
+ const bookingTimeSlotOptions: DialogTimeOption[] = bookingTimeOptions.map((timing, index) => ({
+  value: timing,
+  label: timing,
+  description: index === 0 ? "Recommended" : "Available"
+ }))
+ const bookingDateOptions = !isBookingFlow
+  ? []
+  : scheduleDays.length > 0
+   ? getUpcomingScheduleDatesForDays(scheduleDays, effectivePurpose === "trial" ? 40 : 14)
+   : getUpcomingScheduleDates(effectivePurpose === "trial" ? 40 : 14)
+ const trialDateOptions: DialogDateOption[] = bookingDateOptions
+  .filter((option) => isTrialBookingDateAllowed(option.value))
+  .slice(0, 10)
+  .map((option, index) => ({
+   ...option,
+   disabled: bookingTimeSlotOptions.length === 0,
+   description:
+    bookingTimeSlotOptions.length > 0
+     ? index === 0
+      ? `${bookingTimeSlotOptions.length} slots · soonest`
+      : `${bookingTimeSlotOptions.length} slots`
+     : "No slots"
+  }))
  const heroMomentLabel = isEnquiryFlow && !enquiryChoice
   ? "Follow-up"
   : effectivePurpose === "trial"
@@ -220,6 +198,14 @@ export default function ReviewScreen() {
  const shouldShowProfilePhotoOnReview = effectivePurpose === "enroll" && data.status !== "new"
  const hasSavedProfilePhoto = Boolean(data.profilePhotoUrl || data.profilePhotoStoragePath)
  const displayPhotoUrl = draftPreviewUrl || data.profilePhotoUrl
+ const derivedPhotoStatusMessage = !shouldShowProfilePhotoOnReview
+  ? ""
+  : hasSavedProfilePhoto && !draftPreviewUrl
+  ? "Profile photo already available for this member."
+  : !hasSavedProfilePhoto && !draftPreviewUrl
+   ? "Profile photo is optional here. Add one now or continue to payment."
+   : ""
+ const displayPhotoStatusMessage = photoStatusMessage || derivedPhotoStatusMessage
 
  const releaseDraftPreview = useCallback(() => {
   if (previewUrlRef.current) {
@@ -227,20 +213,6 @@ export default function ReviewScreen() {
    previewUrlRef.current = null
   }
  }, [])
-
- useEffect(() => {
-  if (!shouldShowProfilePhotoOnReview) {
-   setPhotoError("")
-   setPhotoStatusMessage("")
-   return
-  }
-
-  if (hasSavedProfilePhoto && !draftPreviewUrl) {
-   setPhotoStatusMessage("Profile photo already available for this member.")
-  } else if (!hasSavedProfilePhoto && !draftPreviewUrl) {
-   setPhotoStatusMessage("Profile photo is optional here. Add one now or continue to payment.")
-  }
- }, [draftPreviewUrl, hasSavedProfilePhoto, shouldShowProfilePhotoOnReview])
 
  useEffect(() => {
   return () => {
@@ -1039,7 +1011,7 @@ export default function ReviewScreen() {
           style={{ display: "none" }}
          />
 
-         {photoStatusMessage && <p style={styles.photoStatus}>{photoStatusMessage}</p>}
+         {displayPhotoStatusMessage && <p style={styles.photoStatus}>{displayPhotoStatusMessage}</p>}
          {photoError && <p style={styles.photoError}>{photoError}</p>}
         </div>
        </div>
