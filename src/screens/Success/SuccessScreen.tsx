@@ -1,6 +1,5 @@
 import { useNavigate } from "@/navigation/useAppNavigation"
-import { doc, serverTimestamp, setDoc } from "firebase/firestore"
-import { db } from "../../firebase/firebase"
+import { serverTimestamp } from "firebase/firestore"
 import { useAuthStore } from "../../store/authStore"
 import { useUserStore } from "../../store/userStore"
 
@@ -12,10 +11,10 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { trackKioskSessionCompletion } from "../../services/kioskSessions"
 import { getDurationDays } from "../../utils/duration"
 import { createPaymentRecord } from "../../services/paymentRecords"
-import { getPhoneDocumentId } from "../../utils/validation"
 import { TRIAL_FEE } from "../../utils/trialPricing"
 import { getPaymentMethodLabel, getSplitPaymentMethodLabel } from "../../utils/payment"
 import { saveEnquirySubmission } from "../../services/enquirySubmission"
+import { saveMemberSubmission } from "../../services/memberSubmission"
 
 export default function SuccessScreen() {
 
@@ -26,10 +25,13 @@ export default function SuccessScreen() {
  const paymentMethodLabel = data.isPartialPayment
   ? getSplitPaymentMethodLabel(data.paymentMethod1, data.paymentMethod2)
   : getPaymentMethodLabel(data.paymentMethod)
- const effectivePrice = data.purpose === "trial" ? TRIAL_FEE : data.price
- const finalPaymentAmount = data.paymentTotalAmount > 0 ? data.paymentTotalAmount : effectivePrice
+ const trialCreditApplied = data.cameFromTrial && data.purpose === "enroll"
+ const bookingPrice = data.purpose === "trial" ? TRIAL_FEE : (trialCreditApplied ? Math.max(0, data.price - TRIAL_FEE) : data.price)
+ const discountAmount = data.purpose === "trial" ? 0 : data.discountAmount
+ const finalPayable = data.purpose === "trial" ? TRIAL_FEE : Math.max(0, bookingPrice - discountAmount)
+ const finalPaymentAmount = data.paymentTotalAmount > 0 ? data.paymentTotalAmount : finalPayable
  const addonTotalPrice = data.selectedAddOnIds.length
-  ? Math.max(effectivePrice - (data.mainPlanPrice || 0), 0)
+  ? Math.max(data.price - (data.mainPlanPrice || 0), 0)
   : 0
 
  const [loading,setLoading] = useState(false)
@@ -48,7 +50,6 @@ export default function SuccessScreen() {
    return
   }
 
-  const phoneDocId = getPhoneDocumentId(data.phone, data.countryCode)
   const destination = data.purpose === "enquiry" ? "/enquiry-thank-you" : "/"
 
   try {
@@ -62,6 +63,7 @@ export default function SuccessScreen() {
    }
 
    if (data.purpose === "enquiry") {
+    console.debug("[SuccessScreen] Saving enquiry submission")
     await saveEnquirySubmission({
      name: data.name,
      phone: data.phone,
@@ -89,10 +91,13 @@ export default function SuccessScreen() {
      batchDate: data.batchDate,
      followUpDate: data.followUpDate,
      followUpTime: data.followUpTime,
-     price: data.price,
+     price: finalPayable,
+     discountAmount: discountAmount || undefined,
      staffUser
     })
 
+    navigate(destination, { replace: true })
+    data.reset()
     return
    }
 
@@ -100,7 +105,7 @@ export default function SuccessScreen() {
    const daysToAdd = getDurationDays(data.duration)
    const expiryDate = new Date()
    expiryDate.setDate(today.getDate() + daysToAdd)
-   const cameFromEnquiry = data.status === "enquiry"
+
    const paymentReference =
     data.paymentMethod && data.paymentStatus === "paid"
      ? await createPaymentRecord({
@@ -112,6 +117,7 @@ export default function SuccessScreen() {
         program: data.program,
         duration: data.duration,
         amount: finalPaymentAmount,
+        discountAmount: discountAmount || undefined,
         mainPlanPrice: data.mainPlanPrice || 0,
         selectedAddOnIds: data.selectedAddOnIds,
         addonTotalPrice,
@@ -120,10 +126,7 @@ export default function SuccessScreen() {
         batchDate: data.batchDate,
         followUp:
          data.followUpDate || data.followUpTime
-          ? {
-           date: data.followUpDate,
-           time: data.followUpTime
-          }
+          ? { date: data.followUpDate, time: data.followUpTime }
           : null,
         purpose: data.purpose,
         paymentMethod: data.paymentMethod,
@@ -159,94 +162,17 @@ export default function SuccessScreen() {
        })
      : data.paymentReference
 
-   await setDoc(
-    doc(db, "users", phoneDocId),
-    {
-     name: data.name,
-     phone: data.phone,
-     countryCode: data.countryCode,
-     dateOfBirth: data.dateOfBirth,
-     lookingFor: data.lookingFor,
-     referenceSource: data.referenceSource,
-     age: data.age,
-     gender: data.gender,
-     purpose: data.purpose,
-     experience: data.experience,
-     priorExerciseExperience: data.priorExerciseExperience,
-     priorExerciseActivity: data.priorExerciseActivity,
-     priorExerciseDuration: data.priorExerciseDuration,
-     lastExerciseTime: data.lastExerciseTime,
-     injury: data.injury,
-     injuryDetails: data.injury ? data.injuryDetails : "",
-     exerciseType: data.exerciseType,
-     program: data.program,
-     days: data.days,
-     plan: data.plan,
-     duration: data.duration,
-     batchType: data.batchType,
-     batchTime: data.batchTime,
-     batchDate: data.batchDate,
-     followUp:
-      data.followUpDate || data.followUpTime
-       ? {
-        date: data.followUpDate,
-        time: data.followUpTime
-       }
-       : null,
-     price: effectivePrice,
-     mainPlanPrice: data.mainPlanPrice || 0,
-     selectedAddOnIds: data.selectedAddOnIds,
-     addonTotalPrice,
-     ...staffMetadata,
-     paymentReference,
-     paymentMethod: data.paymentMethod,
-     paymentStatus: data.paymentStatus,
-     isPartialPayment: data.isPartialPayment,
-     isSplitPayment: data.isSplitPayment,
-     paidAmount: (data.isPartialPayment || data.isSplitPayment) ? data.paidAmount : undefined,
-     dueAmount: (data.isPartialPayment || data.isSplitPayment) ? data.dueAmount : undefined,
-     partialPaymentDueDate: data.isPartialPayment ? data.partialPaymentDueDate : undefined,
-     paymentMethod1: (data.isPartialPayment || data.isSplitPayment) ? data.paymentMethod1 : undefined,
-     paymentMethod2: (data.isPartialPayment || data.isSplitPayment) ? data.paymentMethod2 : undefined,
-     paymentSurchargeAmount: data.paymentSurchargeAmount || undefined,
-     paymentTotalAmount: finalPaymentAmount,
-     consentRequestId: data.consentRequestId,
-     consentRecordId: data.consentRecordId,
-     consentSigningStatus: data.consentSigningStatus,
-     consentSignerType: data.consentSignerType,
-     consentGuardianName: data.consentGuardianName,
-     consentGuardianPhone: data.consentGuardianPhone,
-     consentGuardianRelationship: data.consentGuardianRelationship,
-     consentTermsVersion: data.consentTermsVersion,
-     consentDocumentVersion: data.consentDocumentVersion,
-     consentAgreed: data.consentAgreed,
-     consentAgreedAt: data.consentAgreedAt,
-     consentProviderName: data.consentProviderName,
-     consentProviderRequestId: data.consentProviderRequestId,
-     consentProviderTransactionId: data.consentProviderTransactionId,
-     consentDocumentHash: data.consentDocumentHash,
-     consentUnsignedPdfUrl: data.consentUnsignedPdfUrl,
-     consentSignedPdfUrl: data.consentSignedPdfUrl,
-     consentAuditTrailUrl: data.consentAuditTrailUrl,
-     consentUnsignedPdfStoragePath: data.consentUnsignedPdfStoragePath,
-     consentSignedPdfStoragePath: data.consentSignedPdfStoragePath,
-     consentAuditTrailStoragePath: data.consentAuditTrailStoragePath,
-     consentSupplementarySignatureDataUrl: data.consentSupplementarySignatureDataUrl,
-     consentSupplementarySignatureUrl: data.consentSupplementarySignatureUrl,
-     consentSupplementarySignatureStoragePath: data.consentSupplementarySignatureStoragePath,
-     consentSupplementarySignatureHash: data.consentSupplementarySignatureHash,
-     status: data.purpose === "trial" ? "trial" : "member",
-     ...(cameFromEnquiry
-      ? {
-         enquiryStatus: data.purpose === "trial" ? "trial_booked" : "converted"
-        }
-      : {}),
-     createdAt: serverTimestamp(),
-     updatedAt: serverTimestamp(),
-     expiryDate
-    },
-    { merge: true }
-   )
+   console.debug("[SuccessScreen] Saving full user document to Firestore")
+   await saveMemberSubmission({
+    state: data,
+    staffUser,
+    paymentReference,
+    effectivePrice: finalPayable,
+    discountAmount: discountAmount || undefined,
+    finalPaymentAmount,
+    addonTotalPrice,
+    expiryDate
+   })
 
    void trackKioskSessionCompletion(staffMetadata.staffSessionId, {
     purpose: data.purpose,
@@ -255,14 +181,16 @@ export default function SuccessScreen() {
     console.error("Kiosk session tracking error:", error)
    })
 
-} catch (error) {
-   console.error("Error saving user:", error)
-  } finally {
-   setLoading(false)
    navigate(destination, { replace: true })
    data.reset()
+
+  } catch (error) {
+   console.error("[SuccessScreen] Failed to save user document — staying on screen:", error)
+   hasAutoSubmittedRef.current = false
+  } finally {
+   setLoading(false)
   }
- }, [addonTotalPrice, data, effectivePrice, finalPaymentAmount, navigate, staffUser])
+ }, [addonTotalPrice, data, discountAmount, finalPayable, finalPaymentAmount, navigate, staffUser])
 
  useEffect(() => {
   if (hasAutoSubmittedRef.current) {

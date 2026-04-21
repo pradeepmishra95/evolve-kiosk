@@ -33,6 +33,7 @@ interface EnquirySubmissionPayload {
  followUpDate: string
  followUpTime: string
  price: number
+ discountAmount?: number
  staffUser: StaffSessionUser | null
  purpose?: UserPurpose
  status?: UserStatus
@@ -80,6 +81,7 @@ export const saveEnquirySubmission = async (payload: EnquirySubmissionPayload) =
       }
       : null,
     price: payload.price,
+    discountAmount: payload.discountAmount || undefined,
     ...staffMetadata,
     ...(payload.followUpDate && payload.followUpTime
      ? {

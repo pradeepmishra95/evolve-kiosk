@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 import logo from "../assets/image/logo.png"
 import { colors, shadow } from "../styles/GlobalStyles"
 import BackButton from "../components/buttons/BackButton"
+import CancelButton from "../components/buttons/CancelButton"
 import FlowProgress, { getFlowProgress } from "../components/feedback/FlowProgress"
 import { useUserStore } from "../store/userStore"
 
@@ -30,6 +31,7 @@ export default function Container({
  const flowState = { purpose, status, injury, program, exerciseType, age }
  const flowProgress = getFlowProgress(pathname, flowState)
  const shouldShowBackButton = showBackButton && pathname !== "/"
+ const shouldShowCancelButton = pathname !== "/" && pathname !== "/success" && pathname !== "/enquiry-thank-you"
  const viewportRef = useRef<HTMLDivElement | null>(null)
  const contentRef = useRef<HTMLDivElement | null>(null)
  const [fitScale, setFitScale] = useState(1)
@@ -255,17 +257,19 @@ export default function Container({
      )}
    </div>
 
-    {shouldShowBackButton && (
+    {(shouldShowBackButton || shouldShowCancelButton) && (
      <div
       style={{
        display: "flex",
-       justifyContent: "flex-start",
+       justifyContent: "space-between",
+       alignItems: "center",
        alignSelf: "stretch",
        paddingTop: "clamp(10px, 1.8vh, 16px)",
        flexShrink: 0
       }}
      >
-      <BackButton />
+      <div>{shouldShowBackButton ? <BackButton /> : <span />}</div>
+      <div>{shouldShowCancelButton ? <CancelButton /> : null}</div>
      </div>
     )}
   </div>

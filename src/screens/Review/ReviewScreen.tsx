@@ -21,7 +21,7 @@ import {
 } from "../../utils/planSchedule"
 import { formatScheduleDate, getUpcomingScheduleDates, isTrialBookingDateAllowed } from "../../utils/schedule"
 import { buildPriceBreakdown, resolveAddonPlans, resolvePlanPricing } from "../../utils/planPricing"
-import { TRIAL_FEE, TRIAL_FEE_NOTE } from "../../utils/trialPricing"
+import { TRIAL_FEE, TRIAL_FEE_NOTE, TRIAL_ORIGINAL_PRICE } from "../../utils/trialPricing"
 import { PAYMENT_METHOD_OPTIONS, getPaymentSurchargeAmount } from "../../utils/payment"
 import { getProfilePhotoUploadStatusMessage, uploadProfilePhoto } from "../../services/profilePhoto"
 import type { ProfilePhotoSource, ProgramPlan } from "../../types/domain"
@@ -43,6 +43,16 @@ const formatScheduleMoment = (date: string, time: string) => {
 }
 
 const PROFILE_PHOTO_FILE_NAME = "profile-photo.jpg"
+
+const formatYesNo = (value: string) => value === "yes" ? "Yes" : value === "no" ? "No" : "-"
+const formatActivities = (values: string[]) => values.length ? values.join(", ") : "-"
+const formatPurpose = (purpose: string) => {
+ if (purpose === "trial") return "Trial"
+ if (purpose === "enroll") return "Enroll"
+ if (purpose === "renew") return "Renew"
+ if (purpose === "enquiry") return "Enquiry"
+ return "-"
+}
 
 export default function ReviewScreen() {
 
@@ -106,11 +116,14 @@ export default function ReviewScreen() {
  const [splitAmount1Input, setSplitAmount1Input] = useState("")
  const [splitError, setSplitError] = useState("")
  const [partialDueDate, setPartialDueDate] = useState("")
+ const [discountError, setDiscountError] = useState("")
  const cameraInputRef = useRef<HTMLInputElement | null>(null)
  const galleryInputRef = useRef<HTMLInputElement | null>(null)
  const previewUrlRef = useRef<string | null>(null)
  const trialCreditApplied = data.cameFromTrial && effectivePurpose === "enroll"
  const bookingPrice = isTrialBooking ? TRIAL_FEE : trialCreditApplied ? Math.max(0, data.price - TRIAL_FEE) : data.price
+ const discountAmount = isTrialBooking ? 0 : data.discountAmount
+ const finalPayable = isTrialBooking ? TRIAL_FEE : Math.max(0, bookingPrice - discountAmount)
  const followUpMinDate = useMemo(() => toDateInputValue(startOfDay()), [])
 
  const plans = data.age !== null && data.age <= 12 ? kidsPlans : adultPlans
@@ -256,7 +269,8 @@ export default function ReviewScreen() {
    batchType: firstBatchType,
    batchTime: firstBatchTime,
    selectedAddOnIds: [],
-   batchDate: ""
+   batchDate: "",
+   discountAmount: 0
   })
   setExpandedEditor(null)
  }
@@ -270,7 +284,8 @@ export default function ReviewScreen() {
    mainPlanPrice: pricing.price,
    mainPlanOriginalPrice: pricing.originalPrice ?? 0,
    selectedAddOnIds: [],
-   batchDate: ""
+   batchDate: "",
+   discountAmount: 0
   })
   setExpandedEditor(null)
  }
@@ -292,29 +307,6 @@ export default function ReviewScreen() {
  const toggleEditor = (field: "program" | "duration" | "batchType" | "batchTime") => {
   setExpandedEditor((prev) => (prev === field ? null : field))
  }
-
- const formatYesNo = (value: string) => value === "yes" ? "Yes" : value === "no" ? "No" : "-"
- const formatActivities = (values: string[]) => values.length ? values.join(", ") : "-"
- const formatPurpose = (purpose: string) => {
-  if (purpose === "trial") return "Trial"
-  if (purpose === "enroll") return "Enroll"
-  if (purpose === "renew") return "Renew"
-  if (purpose === "enquiry") return "Enquiry"
-
-  return "-"
- }
-
- const renderTile = (label: string, value: string, accent = false) => (
-  <div
-   style={{
-    ...styles.detailTile,
-    ...(accent ? styles.detailTileAccent : {})
-   }}
-  >
-   <p style={styles.detailLabel}>{label}</p>
-   <p style={styles.detailValue}>{value || "-"}</p>
-  </div>
- )
 
  const uploadPhoto = async (blob: Blob, source: ProfilePhotoSource, fileName: string) => {
   if (!data.name || !data.phone) {
@@ -437,6 +429,11 @@ export default function ReviewScreen() {
    }
   }
 
+  if (!isTrialBooking && discountAmount > bookingPrice) {
+   setDiscountError("Discount cannot exceed the payable amount.")
+   return
+  }
+
   if (splitEnabled) {
    const parsedSplit = parseInt(splitAmount1Input, 10)
 
@@ -450,16 +447,16 @@ export default function ReviewScreen() {
     return
    }
 
-   if (parsedSplit >= bookingPrice) {
+   if (parsedSplit >= finalPayable) {
     setSplitError("First amount must be less than the total. Use full payment for a single method.")
     return
    }
 
    const split1Surcharge = getPaymentSurchargeAmount(parsedSplit, splitMethod1 as Parameters<typeof getPaymentSurchargeAmount>[1])
-   const split2Amount = bookingPrice - parsedSplit
+   const split2Amount = finalPayable - parsedSplit
 
    data.setData({
-    price: bookingPrice,
+
     isSplitPayment: true,
     isPartialPayment: false,
     partialPaymentDueDate: "",
@@ -469,7 +466,7 @@ export default function ReviewScreen() {
     paymentMethod2: "",
     paymentCollectionStep: 1,
     paymentSurchargeAmount: split1Surcharge,
-    paymentTotalAmount: bookingPrice + split1Surcharge,
+    paymentTotalAmount: finalPayable + split1Surcharge,
     paymentReference: "",
     paymentMethod: "",
     paymentStatus: ""
@@ -482,30 +479,30 @@ export default function ReviewScreen() {
     return
    }
 
-   if (parsed >= bookingPrice) {
+   if (parsed >= finalPayable) {
     setPartialError("Partial amount must be less than the total.")
     return
    }
 
    data.setData({
-    price: bookingPrice,
+
     isPartialPayment: true,
     isSplitPayment: false,
     partialPaymentDueDate: partialDueDate,
     paidAmount: parsed,
-    dueAmount: bookingPrice - parsed,
+    dueAmount: finalPayable - parsed,
     paymentCollectionStep: 1,
     paymentMethod1: "",
     paymentMethod2: "",
     paymentSurchargeAmount: 0,
-    paymentTotalAmount: bookingPrice,
+    paymentTotalAmount: finalPayable,
     paymentReference: "",
     paymentMethod: "",
     paymentStatus: ""
    })
   } else {
    data.setData({
-    price: bookingPrice,
+
     isPartialPayment: false,
     isSplitPayment: false,
     partialPaymentDueDate: "",
@@ -515,7 +512,7 @@ export default function ReviewScreen() {
     paymentMethod1: "",
     paymentMethod2: "",
     paymentSurchargeAmount: 0,
-    paymentTotalAmount: bookingPrice,
+    paymentTotalAmount: finalPayable,
     paymentReference: "",
     paymentMethod: "",
     paymentStatus: ""
@@ -579,12 +576,12 @@ export default function ReviewScreen() {
    const parsedSplit = parseInt(splitAmount1Input, 10)
    if (!splitMethod1) { setSplitError("Please select the first payment method."); return }
    if (!splitAmount1Input || isNaN(parsedSplit) || parsedSplit <= 0) { setSplitError("Enter a valid amount for the first payment method."); return }
-   if (parsedSplit >= bookingPrice) { setSplitError("First amount must be less than the total. Use full payment for a single method."); return }
+   if (parsedSplit >= finalPayable) { setSplitError("First amount must be less than the total. Use full payment for a single method."); return }
    const split1Surcharge = getPaymentSurchargeAmount(parsedSplit, splitMethod1 as Parameters<typeof getPaymentSurchargeAmount>[1])
-   const split2Amount = bookingPrice - parsedSplit
+   const split2Amount = finalPayable - parsedSplit
    data.setData({
     purpose: "enroll",
-    price: bookingPrice,
+
     isSplitPayment: true,
     isPartialPayment: false,
     partialPaymentDueDate: "",
@@ -594,7 +591,7 @@ export default function ReviewScreen() {
     paymentMethod2: "",
     paymentCollectionStep: 1,
     paymentSurchargeAmount: split1Surcharge,
-    paymentTotalAmount: bookingPrice + split1Surcharge,
+    paymentTotalAmount: finalPayable + split1Surcharge,
     paymentReference: "",
     paymentMethod: "",
     paymentStatus: ""
@@ -602,20 +599,20 @@ export default function ReviewScreen() {
   } else if (partialEnabled) {
    const parsed = parseInt(partialInput, 10)
    if (!partialInput || isNaN(parsed) || parsed <= 0) { setPartialError("Enter a valid partial amount."); return }
-   if (parsed >= bookingPrice) { setPartialError("Partial amount must be less than the total."); return }
+   if (parsed >= finalPayable) { setPartialError("Partial amount must be less than the total."); return }
    data.setData({
     purpose: "enroll",
-    price: bookingPrice,
+
     isPartialPayment: true,
     isSplitPayment: false,
     partialPaymentDueDate: partialDueDate,
     paidAmount: parsed,
-    dueAmount: bookingPrice - parsed,
+    dueAmount: finalPayable - parsed,
     paymentCollectionStep: 1,
     paymentMethod1: "",
     paymentMethod2: "",
     paymentSurchargeAmount: 0,
-    paymentTotalAmount: bookingPrice,
+    paymentTotalAmount: finalPayable,
     paymentReference: "",
     paymentMethod: "",
     paymentStatus: ""
@@ -623,7 +620,7 @@ export default function ReviewScreen() {
   } else {
    data.setData({
     purpose: "enroll",
-    price: bookingPrice,
+
     isPartialPayment: false,
     isSplitPayment: false,
     partialPaymentDueDate: "",
@@ -633,7 +630,7 @@ export default function ReviewScreen() {
     paymentMethod1: "",
     paymentMethod2: "",
     paymentSurchargeAmount: 0,
-    paymentTotalAmount: bookingPrice,
+    paymentTotalAmount: finalPayable,
     paymentReference: "",
     paymentMethod: "",
     paymentStatus: ""
@@ -689,27 +686,6 @@ export default function ReviewScreen() {
   }
  }
 
- const renderEditButton = (label: string, onClick: () => void) => (
-  <button
-   type="button"
-   onClick={onClick}
-   style={{
-    borderRadius: "999px",
-    border: `1px solid ${colors.borderStrong}`,
-    background: "transparent",
-    color: colors.primaryLight,
-    padding: "10px 16px",
-    cursor: "pointer",
-    letterSpacing: "0.12em",
-    textTransform: "uppercase",
-    fontSize: "12px",
-    fontWeight: 700
-   }}
-  >
-   {label}
-  </button>
- )
-
  return (
   <Container scrollable>
    <div style={styles.wrapper}>
@@ -734,12 +710,22 @@ export default function ReviewScreen() {
      <div style={styles.detailTile}>
       <p style={styles.detailLabel}>Price</p>
       <p style={styles.detailValue}>
-       {mainPlanOriginalPrice > mainPlanPrice && mainPlanOriginalPrice > 0 && (
+       {isTrialBooking && (
+        <span style={{ fontSize: "12px", textDecoration: "line-through", textDecorationColor: "#E85A5A", textDecorationThickness: "1.5px", color: "#E85A5A", fontWeight: 400, display: "block" }}>
+         ₹{TRIAL_ORIGINAL_PRICE.toLocaleString("en-IN")}
+        </span>
+       )}
+       {!isTrialBooking && mainPlanOriginalPrice > mainPlanPrice && mainPlanOriginalPrice > 0 && (
         <span style={{ fontSize: "12px", textDecoration: "line-through", textDecorationColor: "#E85A5A", textDecorationThickness: "1.5px", color: "#E85A5A", fontWeight: 400, display: "block" }}>
          ₹{mainPlanOriginalPrice.toLocaleString("en-IN")}
         </span>
        )}
-       {bookingPrice ? `₹${bookingPrice.toLocaleString("en-IN")}` : "-"}
+       {!isTrialBooking && discountAmount > 0 && (
+        <span style={{ fontSize: "12px", textDecoration: "line-through", textDecorationColor: "#E85A5A", textDecorationThickness: "1.5px", color: "#E85A5A", fontWeight: 400, display: "block" }}>
+         ₹{bookingPrice.toLocaleString("en-IN")}
+        </span>
+       )}
+       {finalPayable ? `₹${finalPayable.toLocaleString("en-IN")}` : "-"}
       </p>
      </div>
     </div>
@@ -753,53 +739,32 @@ export default function ReviewScreen() {
     </div>
 
     <div style={styles.sectionStack}>
-     <div style={styles.sectionCard(isMobile, isCompactHeight)}>
-     <div style={styles.sectionHeader}>
-      <div>
-       <p style={styles.sectionEyebrow}>Profile</p>
-       <h3 style={styles.sectionTitle}>Personal Details</h3>
-      </div>
-       {renderEditButton("Edit", goToDetails)}
-      </div>
+     <PersonalDetailsSection
+      isMobile={isMobile}
+      isCompactHeight={isCompactHeight}
+      name={data.name}
+      phone={data.phone}
+      countryCode={data.countryCode}
+      gender={data.gender}
+      lookingFor={data.lookingFor}
+      dateOfBirth={data.dateOfBirth}
+      referenceSource={data.referenceSource}
+      onEdit={goToDetails}
+     />
 
-      <div style={styles.detailGrid(isMobile)}>
-       {renderTile("Name", data.name || "-")}
-       {renderTile("Phone", formatPhoneNumber(data.phone, data.countryCode) || data.phone || "-")}
-       {renderTile("Gender", data.gender || "-")}
-       {renderTile("Looking For", data.lookingFor || "-")}
-       {renderTile("Date of Birth", formatDateOfBirth(data.dateOfBirth))}
-       {renderTile("Reference", data.referenceSource || "-")}
-      </div>
-     </div>
-
-     <div style={styles.sectionCard(isMobile, isCompactHeight)}>
-     <div style={styles.sectionHeader}>
-      <div>
-       <p style={styles.sectionEyebrow}>Assessment</p>
-       <h3 style={styles.sectionTitle}>Training Background</h3>
-      </div>
-      {renderEditButton("Edit", goToTraining)}
-     </div>
-
-      <div style={styles.detailGrid(isMobile)}>
-       {renderTile("Purpose", formatPurpose(data.purpose))}
-       {renderTile("Injury", data.injury ? "Yes" : "No")}
-       {renderTile("Training Type", data.exerciseType || "-")}
-       {renderTile("Experience", data.experience || "-")}
-       {renderTile("Prior Exercise Experience", formatYesNo(data.priorExerciseExperience))}
-      </div>
-
-      {data.priorExerciseExperience === "yes" && (
-       <div style={styles.subSection}>
-        <p style={styles.subSectionTitle}>Previous activity</p>
-        <div style={styles.detailGrid(isMobile)}>
-         {renderTile("Exercise / Sport", formatActivities(data.priorExerciseActivity))}
-         {renderTile("Experience Duration", data.priorExerciseDuration || "-")}
-         {renderTile("Last Active", data.lastExerciseTime || "-")}
-        </div>
-       </div>
-      )}
-     </div>
+     <TrainingBackgroundSection
+      isMobile={isMobile}
+      isCompactHeight={isCompactHeight}
+      purpose={data.purpose}
+      injuryDisplay={data.injury ? "Yes" : "No"}
+      exerciseType={data.exerciseType}
+      experience={data.experience}
+      priorExerciseExperience={data.priorExerciseExperience}
+      priorExerciseActivity={data.priorExerciseActivity}
+      priorExerciseDuration={data.priorExerciseDuration}
+      lastExerciseTime={data.lastExerciseTime}
+      onEdit={goToTraining}
+     />
 
      <div style={styles.sectionCard(isMobile, isCompactHeight)}>
       <div style={styles.sectionHeader}>
@@ -1091,7 +1056,7 @@ export default function ReviewScreen() {
        </div>
 
        <div style={styles.breakdownCard}>
-        {buildPriceBreakdown("Main Plan", mainPlanPrice, selectedAddonPlans, mainPlanOriginalPrice).map((item) => (
+        {buildPriceBreakdown("Main Plan", mainPlanPrice, selectedAddonPlans, isTrialBooking ? TRIAL_ORIGINAL_PRICE : mainPlanOriginalPrice).map((item) => (
          <div key={item.label} style={styles.breakdownRow}>
           <span style={styles.breakdownLabel}>{item.label}</span>
           <span style={{ ...styles.breakdownValue, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" }}>
@@ -1124,12 +1089,43 @@ export default function ReviewScreen() {
 
         <div style={styles.breakdownDivider} />
         <div style={styles.breakdownRowTotal}>
-         <span style={styles.breakdownLabel}>Total</span>
+         <span style={styles.breakdownLabel}>Subtotal</span>
          <span style={styles.breakdownValue}>₹{(isTrialBooking ? TRIAL_FEE : bookingPrice).toLocaleString("en-IN")}</span>
         </div>
 
         {!isTrialBooking && (
          <>
+          <div style={styles.breakdownDivider} />
+
+          {/* Staff Discount */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>
+           <span style={styles.breakdownLabel}>Staff Discount (₹)</span>
+           <input
+            type="number"
+            min={0}
+            max={bookingPrice}
+            placeholder="0"
+            value={data.discountAmount > 0 ? String(data.discountAmount) : ""}
+            onChange={(e) => { data.setData({ discountAmount: Math.max(0, parseInt(e.target.value, 10) || 0) }); setDiscountError("") }}
+            style={{ width: "120px", padding: "6px 10px", borderRadius: radius.md, border: `1px solid ${discountError ? "#F1A596" : colors.border}`, background: "rgba(255,255,255,0.06)", color: colors.textPrimary, fontSize: "15px", fontWeight: 700, textAlign: "right" as const, outline: "none", boxSizing: "border-box" as const }}
+           />
+          </div>
+
+          {discountError && <p style={{ margin: 0, color: "#F1A596", fontSize: "13px" }}>{discountError}</p>}
+
+          {discountAmount > 0 && (
+           <div style={styles.breakdownRow}>
+            <span style={{ ...styles.breakdownLabel, color: "#4ade80" }}>Discount Applied</span>
+            <span style={{ ...styles.breakdownValue, color: "#4ade80" }}>- ₹{discountAmount.toLocaleString("en-IN")}</span>
+           </div>
+          )}
+
+          <div style={styles.breakdownDivider} />
+          <div style={styles.breakdownRowTotal}>
+           <span style={{ ...styles.breakdownLabel, color: colors.primaryLight }}>Payable Amount</span>
+           <span style={{ ...styles.breakdownValue, color: colors.primaryLight, fontSize: "17px" }}>₹{finalPayable.toLocaleString("en-IN")}</span>
+          </div>
+
           <div style={styles.breakdownDivider} />
 
           {/* Partial Payment */}
@@ -1158,8 +1154,8 @@ export default function ReviewScreen() {
             <input
              type="number"
              min={1}
-             max={bookingPrice - 1}
-             placeholder={`Collect now (max ₹${(bookingPrice - 1).toLocaleString("en-IN")})`}
+             max={finalPayable - 1}
+             placeholder={`Collect now (max ₹${(finalPayable - 1).toLocaleString("en-IN")})`}
              value={partialInput}
              onChange={(e) => { setPartialInput(e.target.value); setPartialError("") }}
              style={{ width: "100%", padding: "10px 12px", borderRadius: radius.md, border: `1px solid ${partialError ? "#F1A596" : colors.border}`, background: "rgba(255,255,255,0.06)", color: colors.textPrimary, fontSize: "16px", boxSizing: "border-box" as const, outline: "none" }}
@@ -1173,10 +1169,10 @@ export default function ReviewScreen() {
              pickerTitle="Select Due Date"
              size="compact"
             />
-            {partialInput && !isNaN(parseInt(partialInput, 10)) && parseInt(partialInput, 10) > 0 && parseInt(partialInput, 10) < bookingPrice && (
+            {partialInput && !isNaN(parseInt(partialInput, 10)) && parseInt(partialInput, 10) > 0 && parseInt(partialInput, 10) < finalPayable && (
              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", color: colors.textSecondary }}>
               <span>Now: <b style={{ color: "#4ade80" }}>₹{parseInt(partialInput, 10).toLocaleString("en-IN")}</b></span>
-              <span>Remaining: <b style={{ color: "#f59e0b" }}>₹{(bookingPrice - parseInt(partialInput, 10)).toLocaleString("en-IN")}</b></span>
+              <span>Remaining: <b style={{ color: "#f59e0b" }}>₹{(finalPayable - parseInt(partialInput, 10)).toLocaleString("en-IN")}</b></span>
              </div>
             )}
             {partialError && <p style={{ margin: 0, color: "#F1A596", fontSize: "13px" }}>{partialError}</p>}
@@ -1224,16 +1220,16 @@ export default function ReviewScreen() {
             <input
              type="number"
              min={1}
-             max={bookingPrice - 1}
-             placeholder={`Amount for ${splitMethod1 ? PAYMENT_METHOD_OPTIONS.find(m => m.value === splitMethod1)?.title : "Mode 1"} (max ₹${(bookingPrice - 1).toLocaleString("en-IN")})`}
+             max={finalPayable - 1}
+             placeholder={`Amount for ${splitMethod1 ? PAYMENT_METHOD_OPTIONS.find(m => m.value === splitMethod1)?.title : "Mode 1"} (max ₹${(finalPayable - 1).toLocaleString("en-IN")})`}
              value={splitAmount1Input}
              onChange={(e) => { setSplitAmount1Input(e.target.value); setSplitError("") }}
              style={{ width: "100%", padding: "10px 12px", borderRadius: radius.md, border: `1px solid ${splitError ? "#F1A596" : colors.border}`, background: "rgba(255,255,255,0.06)", color: colors.textPrimary, fontSize: "16px", boxSizing: "border-box" as const, outline: "none" }}
             />
-            {splitAmount1Input && !isNaN(parseInt(splitAmount1Input, 10)) && parseInt(splitAmount1Input, 10) > 0 && parseInt(splitAmount1Input, 10) < bookingPrice && (
+            {splitAmount1Input && !isNaN(parseInt(splitAmount1Input, 10)) && parseInt(splitAmount1Input, 10) > 0 && parseInt(splitAmount1Input, 10) < finalPayable && (
              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", color: colors.textSecondary }}>
               <span>{splitMethod1 ? PAYMENT_METHOD_OPTIONS.find(m => m.value === splitMethod1)?.title : "Mode 1"}: <b style={{ color: "#4ade80" }}>₹{parseInt(splitAmount1Input, 10).toLocaleString("en-IN")}</b></span>
-              <span>Remaining Mode: <b style={{ color: "#f59e0b" }}>₹{(bookingPrice - parseInt(splitAmount1Input, 10)).toLocaleString("en-IN")}</b></span>
+              <span>Remaining Mode: <b style={{ color: "#f59e0b" }}>₹{(finalPayable - parseInt(splitAmount1Input, 10)).toLocaleString("en-IN")}</b></span>
              </div>
             )}
             {splitError && <p style={{ margin: 0, color: "#F1A596", fontSize: "13px" }}>{splitError}</p>}
@@ -1868,4 +1864,112 @@ const styles = {
   flexWrap: "wrap" as const,
   gap: spacing.xs
  }
+}
+
+const renderTile = (label: string, value: string, accent = false) => (
+ <div style={{ ...styles.detailTile, ...(accent ? styles.detailTileAccent : {}) }}>
+  <p style={styles.detailLabel}>{label}</p>
+  <p style={styles.detailValue}>{value || "-"}</p>
+ </div>
+)
+
+const renderEditButton = (label: string, onClick: () => void) => (
+ <button
+  type="button"
+  onClick={onClick}
+  style={{
+   borderRadius: "999px",
+   border: `1px solid ${colors.borderStrong}`,
+   background: "transparent",
+   color: colors.primaryLight,
+   padding: "10px 16px",
+   cursor: "pointer",
+   letterSpacing: "0.12em",
+   textTransform: "uppercase",
+   fontSize: "12px",
+   fontWeight: 700
+  }}
+ >
+  {label}
+ </button>
+)
+
+interface PersonalDetailsSectionProps {
+ isMobile: boolean
+ isCompactHeight: boolean
+ name: string
+ phone: string
+ countryCode: string
+ gender: string
+ lookingFor: string
+ dateOfBirth: string
+ referenceSource: string
+ onEdit: () => void
+}
+
+function PersonalDetailsSection({ isMobile, isCompactHeight, name, phone, countryCode, gender, lookingFor, dateOfBirth, referenceSource, onEdit }: PersonalDetailsSectionProps) {
+ return (
+  <div style={styles.sectionCard(isMobile, isCompactHeight)}>
+   <div style={styles.sectionHeader}>
+    <div>
+     <p style={styles.sectionEyebrow}>Profile</p>
+     <h3 style={styles.sectionTitle}>Personal Details</h3>
+    </div>
+    {renderEditButton("Edit", onEdit)}
+   </div>
+   <div style={styles.detailGrid(isMobile)}>
+    {renderTile("Name", name || "-")}
+    {renderTile("Phone", formatPhoneNumber(phone, countryCode) || phone || "-")}
+    {renderTile("Gender", gender || "-")}
+    {renderTile("Looking For", lookingFor || "-")}
+    {renderTile("Date of Birth", formatDateOfBirth(dateOfBirth))}
+    {renderTile("Reference", referenceSource || "-")}
+   </div>
+  </div>
+ )
+}
+
+interface TrainingBackgroundSectionProps {
+ isMobile: boolean
+ isCompactHeight: boolean
+ purpose: string
+ injuryDisplay: string
+ exerciseType: string
+ experience: string
+ priorExerciseExperience: string
+ priorExerciseActivity: string[]
+ priorExerciseDuration: string
+ lastExerciseTime: string
+ onEdit: () => void
+}
+
+function TrainingBackgroundSection({ isMobile, isCompactHeight, purpose, injuryDisplay, exerciseType, experience, priorExerciseExperience, priorExerciseDuration, lastExerciseTime, priorExerciseActivity, onEdit }: TrainingBackgroundSectionProps) {
+ return (
+  <div style={styles.sectionCard(isMobile, isCompactHeight)}>
+   <div style={styles.sectionHeader}>
+    <div>
+     <p style={styles.sectionEyebrow}>Assessment</p>
+     <h3 style={styles.sectionTitle}>Training Background</h3>
+    </div>
+    {renderEditButton("Edit", onEdit)}
+   </div>
+   <div style={styles.detailGrid(isMobile)}>
+    {renderTile("Purpose", formatPurpose(purpose))}
+    {renderTile("Injury", injuryDisplay)}
+    {renderTile("Training Type", exerciseType || "-")}
+    {renderTile("Experience", experience || "-")}
+    {renderTile("Prior Exercise Experience", formatYesNo(priorExerciseExperience))}
+   </div>
+   {priorExerciseExperience === "yes" && (
+    <div style={styles.subSection}>
+     <p style={styles.subSectionTitle}>Previous activity</p>
+     <div style={styles.detailGrid(isMobile)}>
+      {renderTile("Exercise / Sport", formatActivities(priorExerciseActivity))}
+      {renderTile("Experience Duration", priorExerciseDuration || "-")}
+      {renderTile("Last Active", lastExerciseTime || "-")}
+     </div>
+    </div>
+   )}
+  </div>
+ )
 }

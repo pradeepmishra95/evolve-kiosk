@@ -1,6 +1,7 @@
 import type { PersonalTrainingCoach, PlanPricing, ProgramPlan } from "../types/domain"
 
 export const TRIAL_FEE = 299
+export const TRIAL_ORIGINAL_PRICE = 499
 export const TRIAL_FEE_NOTE = "This amount will be adjusted in your total plan fee when you enroll."
 
 const getTrialPlanOption = (pricing?: PlanPricing[]) => {

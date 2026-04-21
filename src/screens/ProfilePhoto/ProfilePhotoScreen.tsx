@@ -12,6 +12,8 @@ import type { ProfilePhotoSource } from "../../types/domain"
 import { colors, radius, shadow, spacing, typography } from "../../styles/GlobalStyles"
 import { optimizeProfilePhotoBlob } from "../../utils/profilePhotoCapture"
 import { formatPhoneNumber } from "../../utils/validation"
+import { getNextRoute } from "../../flow/getNextRoute"
+import { ROUTES } from "../../flow/routes"
 
 const PROFILE_PHOTO_FILE_NAME = "profile-photo.jpg"
 
@@ -20,6 +22,7 @@ export default function ProfilePhotoScreen() {
  const showToast = useToastStore((state) => state.showToast)
  const { isMobile, isTablet, isPortrait } = useDevice()
 
+ const state = useUserStore()
  const {
   name,
   phone,
@@ -33,7 +36,7 @@ export default function ProfilePhotoScreen() {
   profilePhotoUploadedAt,
   profilePhotoSource,
   setData
- } = useUserStore()
+ } = state
 
  const [photoUploading, setPhotoUploading] = useState(false)
  const [errorMessage, setErrorMessage] = useState("")
@@ -178,7 +181,7 @@ export default function ProfilePhotoScreen() {
    return
   }
 
-  navigate("/program")
+  navigate(getNextRoute(ROUTES.PROFILE_PHOTO, state) ?? "/program")
  }
 
  return (

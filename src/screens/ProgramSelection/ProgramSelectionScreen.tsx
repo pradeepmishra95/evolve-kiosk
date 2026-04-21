@@ -8,6 +8,8 @@ import { TRIAL_FEE, TRIAL_FEE_NOTE } from "../../utils/trialPricing"
 import { matchesLabel, normalizeLabel } from "../../utils/labelMatch"
 import { colors, radius, shadow, spacing, typography } from "../../styles/GlobalStyles"
 import { getPlanWeekdays, weekdayChips } from "./planSelectionHelpers"
+import { getNextRoute } from "../../flow/getNextRoute"
+import { ROUTES } from "../../flow/routes"
 
 const getPlanCardSubtitle = (plan: ProgramPlan) => {
  const timingCount = plan.timings?.length ?? 0
@@ -26,8 +28,9 @@ const getPlanCardSubtitle = (plan: ProgramPlan) => {
 export default function ProgramSelectionScreen() {
  const navigate = useNavigate()
  const { adultPlans, kidsPlans, loading } = usePlanCatalog()
- const { age, exerciseType, purpose, experience } = useUserStore()
- const setData = useUserStore((state) => state.setData)
+ const state = useUserStore()
+ const { age, exerciseType, purpose, experience } = state
+ const setData = state.setData
 
  const plans: ProgramPlan[] = age && age <= 12 ? kidsPlans : adultPlans
  const isAdultFlow = !age || age > 12
@@ -76,7 +79,7 @@ export default function ProgramSelectionScreen() {
    batchDate: ""
   })
 
-  navigate("/plan")
+  navigate(getNextRoute(ROUTES.PROGRAM, state) ?? "/plan")
  }
 
  if (loading && plans.length === 0) {

@@ -24,6 +24,9 @@ import { matchesLabel } from "../../utils/labelMatch"
 import { calculateAgeFromDateOfBirth, getDateOfBirthBounds, validateDateOfBirth } from "../../utils/dateOfBirth"
 import { colors, radius, spacing, typography } from "../../styles/GlobalStyles"
 import { validateInjuryDetails, validateName } from "../../utils/validation"
+import { getNextRoute } from "../../flow/getNextRoute"
+import { ROUTES } from "../../flow/routes"
+import { hasProfilePhoto, shouldRequireProfilePhoto } from "../../flow/predicates"
 
 const referenceOptions = [
  { value: "Walk In", label: "Walk In" },
@@ -198,6 +201,7 @@ export default function UserDetailsScreen() {
  const { trainingTypes, loading } = usePlanCatalog()
  const showToast = useToastStore((state) => state.showToast)
 
+ const state = useUserStore()
  const {
   name,
   phone,
@@ -217,7 +221,7 @@ export default function UserDetailsScreen() {
  profilePhotoStoragePath,
  purpose,
  setData
- } = useUserStore()
+ } = state
 
  const purposeLabel = getPurposeLabel(purpose)
  const dobBounds = getDateOfBirthBounds()
@@ -459,99 +463,11 @@ export default function UserDetailsScreen() {
    experience: resolveExperience()
   })
 
-  if (purpose === "enquiry") {
-   navigate("/program")
-   return
-  }
-
-  if (purpose !== "enroll") {
-   navigate("/program")
-   return
-  }
-
-  if (profilePhotoUrl || profilePhotoStoragePath) {
-   navigate("/program")
-   return
-  }
-
-  navigate("/profile-photo")
- }
-
- const renderTrainingInfoModal = () => {
-  if (!activeKnowMoreType || !activeKnowMoreContent) {
-   return null
-  }
-
-  return (
-   <div
-    style={styles.trainingInfoOverlay}
-    role="dialog"
-    aria-modal="true"
-    aria-label={`${activeKnowMoreType.name} details`}
-    onClick={(event) => {
-     if (event.target === event.currentTarget) {
-      setActiveKnowMoreType(null)
-     }
-    }}
-   >
-    <div style={styles.trainingInfoModalCard}>
-     <div style={styles.trainingInfoHeader}>
-      <p style={styles.trainingInfoEyebrow}>Training Insights</p>
-      <button
-       type="button"
-       className="kiosk-focus-ring"
-       style={styles.trainingInfoCloseButton}
-       onClick={() => setActiveKnowMoreType(null)}
-      >
-       Close
-      </button>
-     </div>
-
-     <div style={styles.trainingInfoModalBody}>
-      <h4 style={styles.trainingInfoTitle}>{activeKnowMoreType.name}</h4>
-      <p style={styles.trainingInfoText}>{activeKnowMoreContent.overview}</p>
-
-      <p style={styles.trainingInfoLabel}>Best for</p>
-      <p style={styles.trainingInfoText}>{activeKnowMoreContent.bestFor}</p>
-
-     <p style={styles.trainingInfoLabel}>Key highlights</p>
-      <ul style={styles.trainingInfoList}>
-       {activeKnowMoreContent.highlights.map((item, index) => (
-        <li key={`${item}-${index}`} style={styles.trainingInfoListItem}>
-         {item}
-        </li>
-       ))}
-      </ul>
-
-      <p style={styles.trainingInfoLabel}>What members work on</p>
-      <ul style={styles.trainingInfoList}>
-       {activeKnowMoreContent.focusAreas.map((item, index) => (
-        <li key={`${item}-${index}`} style={styles.trainingInfoListItem}>
-         {item}
-        </li>
-       ))}
-      </ul>
-
-      <p style={styles.trainingInfoLabel}>Coaching style</p>
-      <p style={styles.trainingInfoText}>{activeKnowMoreContent.coachingStyle}</p>
-
-      <p style={styles.trainingInfoLabel}>Typical session flow</p>
-      <div style={styles.trainingFlowWrap}>
-       {activeKnowMoreContent.sessionFlow.map((item, index) => (
-        <span key={`${item}-${index}`} style={styles.trainingFlowChip}>
-         {item}
-        </span>
-       ))}
-      </div>
-
-      <p style={styles.trainingInfoLabel}>Beginner expectations</p>
-      <p style={styles.trainingInfoText}>{activeKnowMoreContent.beginnerNote}</p>
-
-      <p style={styles.trainingInfoLabel}>Progress over time</p>
-      <p style={styles.trainingInfoText}>{activeKnowMoreContent.progressPath}</p>
-     </div>
-    </div>
-   </div>
+  navigate(
+   getNextRoute(ROUTES.USER_DETAILS, state) ??
+    (shouldRequireProfilePhoto(state) && !hasProfilePhoto(state)
+     ? "/profile-photo"
+     : "/program")
   )
  }
 
@@ -571,143 +487,32 @@ export default function UserDetailsScreen() {
       )}
      </div>
 
-     <div style={styles.sectionCard}>
-      <div style={styles.sectionHeader}>
-       <div>
-        <h3 style={styles.sectionTitle}>Basic Info</h3>
-       </div>
-     </div>
+     <BasicInfoSection
+      isMobile={isMobile}
+      name={name}
+      gender={gender}
+      dateOfBirth={dateOfBirth}
+      lookingFor={lookingFor}
+      referenceSource={referenceSource}
+      dobBounds={dobBounds}
+      errors={{ name: errors.name, gender: errors.gender, dateOfBirth: errors.dateOfBirth, lookingFor: errors.lookingFor, referenceSource: errors.referenceSource }}
+      onNameChange={handleNameChange}
+      onGenderChange={handleGenderChange}
+      onDateOfBirthChange={handleDateOfBirthChange}
+      onLookingForChange={(value) => { setData({ lookingFor: value }); updateErrors("lookingFor") }}
+      onReferenceSourceChange={handleReferenceSourceChange}
+     />
 
-      <div
-       style={{
-        width: "100%",
-        marginBottom: spacing.md,
-        display: "grid",
-        gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.35fr) minmax(0, 0.85fr)",
-        gap: spacing.md,
-        alignItems: "start"
-       }}
-      >
-       <TextInput
-        compact
-        label="Full Name"
-        value={name}
-        placeholder="Enter your name"
-        onChange={handleNameChange}
-        error={errors.name}
-       />
-
-       <SelectInput
-        compact
-        label="Gender"
-        value={gender}
-        placeholder="Select gender"
-        onChange={handleGenderChange}
-        error={errors.gender}
-        options={genderOptions}
-       />
-      </div>
-
-      <div
-       style={{
-        ...styles.inlineBlock,
-        maxWidth: isMobile ? "100%" : "380px"
-       }}
-      >
-       <DobSelector
-        compact
-        label="Date of Birth"
-        value={dateOfBirth}
-        onChange={handleDateOfBirthChange}
-        error={errors.dateOfBirth}
-        min={dobBounds.min}
-        max={dobBounds.max}
-        emptyLabel="Select DOB (Year, Month, Day)"
-       />
-      </div>
-
-      <div style={styles.inlineBlock}>
-       <SelectInput
-        compact
-        label="Whom are you looking for?"
-        value={lookingFor}
-        placeholder="Select one"
-        onChange={(value) => {
-         setData({ lookingFor: value })
-         updateErrors("lookingFor")
-        }}
-        error={errors.lookingFor}
-        options={lookingForOptions}
-       />
-      </div>
-
-      <div style={styles.inlineBlock}>
-       <SelectInput
-        compact
-        label="How did you know about us?"
-        value={referenceSource}
-        placeholder="Select a source"
-        onChange={handleReferenceSourceChange}
-        error={errors.referenceSource}
-        options={referenceOptions}
-       />
-      </div>
-     </div>
-
-     <div style={styles.sectionCard}>
-      <div style={styles.sectionHeader}>
-       <div>
-        <h3 style={styles.sectionTitle}>Injury Check</h3>
-       </div>
-       <span style={styles.optionalPill}>Required</span>
-      </div>
-
-      <Grid
-       style={{
-        marginTop: 0,
-        gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))"
-       }}
-      >
-       <ChoiceCard
-        title="No Injury"
-        subtitle="No current pain or restriction."
-        selected={injuryAnswered && injury === false}
-        showBadge={false}
-        centered
-        onClick={() => handleInjuryChange(false)}
-       />
-
-       <ChoiceCard
-        title="Yes, I have one"
-        subtitle="We will ask for a quick note."
-        selected={injuryAnswered && injury === true}
-        showBadge={false}
-        centered
-        onClick={() => handleInjuryChange(true)}
-       />
-      </Grid>
-
-      {errors.injury && (
-       <p style={styles.errorText}>
-        {errors.injury}
-       </p>
-      )}
-
-      {injury && (
-       <div style={styles.inlineBlock}>
-        <TextInput
-         label="Describe your injury"
-         value={injuryDetails}
-         placeholder="Example: left knee pain, lower back stiffness"
-         onChange={(value) => {
-          setData({ injuryDetails: value })
-          updateErrors("injuryDetails")
-         }}
-         error={errors.injuryDetails}
-        />
-       </div>
-      )}
-     </div>
+     <InjuryCheckSection
+      isMobile={isMobile}
+      injury={injury}
+      injuryAnswered={injuryAnswered}
+      injuryDetails={injuryDetails}
+      injuryError={errors.injury}
+      injuryDetailsError={errors.injuryDetails}
+      onInjuryChange={handleInjuryChange}
+      onInjuryDetailsChange={(value) => { setData({ injuryDetails: value }); updateErrors("injuryDetails") }}
+     />
 
      <div style={styles.sectionCard}>
       <div style={styles.sectionHeader}>
@@ -866,7 +671,11 @@ export default function UserDetailsScreen() {
     </div>
    </div>
 
-   {renderTrainingInfoModal()}
+   <TrainingInfoModal
+    activeKnowMoreType={activeKnowMoreType}
+    activeKnowMoreContent={activeKnowMoreContent}
+    onClose={() => setActiveKnowMoreType(null)}
+   />
   </Container>
  )
 }
@@ -1121,5 +930,290 @@ const styles = {
   marginTop: spacing.lg,
   display: "flex",
   justifyContent: "center"
+ },
+ ageFieldLabel: {
+  display: "block",
+  marginBottom: spacing.sm,
+  fontSize: "12px",
+  color: colors.textSecondary,
+  letterSpacing: "0.14em",
+  textTransform: "uppercase" as const,
+  fontWeight: 700
+ },
+ ageFieldButton: {
+  width: "100%",
+  minHeight: "44px",
+  borderRadius: radius.md,
+  border: `1px solid ${colors.borderStrong}`,
+  background: "rgba(255,255,255,0.04)",
+  color: colors.textPrimary,
+  fontSize: "15px",
+  fontWeight: 700,
+  textAlign: "left" as const,
+  padding: "0 14px",
+  cursor: "pointer"
+ },
+ ageFieldButtonError: {
+  border: "1px solid #D97C6C"
+ },
+ dobOverlay: {
+  position: "fixed" as const,
+  inset: 0,
+  zIndex: 120,
+  background: "rgba(7,11,16,0.78)",
+  backdropFilter: "blur(8px)",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+  padding: "clamp(14px, 3vw, 30px)"
+ },
+ dobDialogCard: {
+  width: "min(100%, 480px)",
+  borderRadius: radius.lg,
+  border: `1px solid ${colors.borderStrong}`,
+  background: "linear-gradient(160deg, rgba(15,22,30,0.98), rgba(8,14,20,0.98))",
+  boxShadow: "0 28px 90px rgba(0,0,0,0.45)",
+  overflow: "hidden"
+ },
+ dobDialogHeader: {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: spacing.md,
+  padding: "clamp(14px, 2vh, 20px)",
+  borderBottom: `1px solid ${colors.border}`
+ },
+ dobDialogTitle: {
+  color: colors.textPrimary,
+  fontSize: "15px",
+  fontWeight: 700,
+  margin: 0
+ },
+ dobDialogDoneButton: {
+  border: `1px solid ${colors.borderStrong}`,
+  borderRadius: radius.md,
+  background: "rgba(255,255,255,0.04)",
+  color: colors.primaryLight,
+  fontSize: "12px",
+  letterSpacing: "0.1em",
+  textTransform: "uppercase" as const,
+  fontWeight: 800,
+  padding: "9px 12px",
+  cursor: "pointer"
+ },
+ dobDialogBody: {
+  padding: "clamp(14px, 2vh, 20px)"
  }
+}
+
+// ---------------------------------------------------------------------------
+// Local child components
+// ---------------------------------------------------------------------------
+
+interface BasicInfoSectionProps {
+ isMobile: boolean
+ name: string
+ gender: string
+ dateOfBirth: string
+ lookingFor: string
+ referenceSource: string
+ dobBounds: { min: string; max: string }
+ errors: { name: string; gender: string; dateOfBirth: string; lookingFor: string; referenceSource: string }
+ onNameChange: (value: string) => void
+ onGenderChange: (value: string) => void
+ onDateOfBirthChange: (value: string) => void
+ onLookingForChange: (value: string) => void
+ onReferenceSourceChange: (value: string) => void
+}
+
+function BasicInfoSection({ isMobile, name, gender, dateOfBirth, lookingFor, referenceSource, dobBounds, errors, onNameChange, onGenderChange, onDateOfBirthChange, onLookingForChange, onReferenceSourceChange }: BasicInfoSectionProps) {
+ const [dobDialogOpen, setDobDialogOpen] = useState(false)
+ const ageDisplay = calculateAgeFromDateOfBirth(dateOfBirth)
+
+ const handleDobChange = (value: string) => {
+  onDateOfBirthChange(value)
+  if (value) setDobDialogOpen(false)
+ }
+
+ return (
+  <div style={styles.sectionCard}>
+   <div style={styles.sectionHeader}>
+    <div>
+     <h3 style={styles.sectionTitle}>Basic Info</h3>
+    </div>
+   </div>
+
+   <div
+    style={{
+     width: "100%",
+     marginBottom: spacing.md,
+     display: "grid",
+     gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.35fr) minmax(0, 0.85fr)",
+     gap: spacing.md,
+     alignItems: "start"
+    }}
+   >
+    <TextInput compact label="Full Name" value={name} placeholder="Enter your name" onChange={onNameChange} error={errors.name} />
+    <SelectInput compact label="Gender" value={gender} placeholder="Select gender" onChange={onGenderChange} error={errors.gender} options={genderOptions} />
+   </div>
+
+   <div style={{ ...styles.inlineBlock, maxWidth: isMobile ? "100%" : "380px" }}>
+    <label style={styles.ageFieldLabel}>Age</label>
+    <button
+     type="button"
+     className="kiosk-focus-ring"
+     onClick={() => setDobDialogOpen(true)}
+     style={{ ...styles.ageFieldButton, ...(errors.dateOfBirth ? styles.ageFieldButtonError : {}) }}
+    >
+     {ageDisplay !== null ? `${ageDisplay} years` : "Tap to select age"}
+    </button>
+    {errors.dateOfBirth && <p style={styles.errorText}>{errors.dateOfBirth}</p>}
+   </div>
+
+   <div style={styles.inlineBlock}>
+    <SelectInput compact label="Whom are you looking for?" value={lookingFor} placeholder="Select one" onChange={onLookingForChange} error={errors.lookingFor} options={lookingForOptions} />
+   </div>
+
+   <div style={styles.inlineBlock}>
+    <SelectInput compact label="How did you know about us?" value={referenceSource} placeholder="Select a source" onChange={onReferenceSourceChange} error={errors.referenceSource} options={referenceOptions} />
+   </div>
+
+   {dobDialogOpen && (
+    <div
+     style={styles.dobOverlay}
+     onClick={(event) => { if (event.target === event.currentTarget) setDobDialogOpen(false) }}
+    >
+     <div style={styles.dobDialogCard}>
+      <div style={styles.dobDialogHeader}>
+       <p style={styles.dobDialogTitle}>Select Date of Birth</p>
+       <button
+        type="button"
+        className="kiosk-focus-ring"
+        style={styles.dobDialogDoneButton}
+        onClick={() => setDobDialogOpen(false)}
+       >
+        Done
+       </button>
+      </div>
+      <div style={styles.dobDialogBody}>
+       <DobSelector
+        compact
+        label="Date of Birth"
+        value={dateOfBirth}
+        onChange={handleDobChange}
+        error={errors.dateOfBirth}
+        min={dobBounds.min}
+        max={dobBounds.max}
+        emptyLabel="Select DOB (Year, Month, Day)"
+       />
+      </div>
+     </div>
+    </div>
+   )}
+  </div>
+ )
+}
+
+interface InjuryCheckSectionProps {
+ isMobile: boolean
+ injury: boolean
+ injuryAnswered: boolean
+ injuryDetails: string
+ injuryError: string
+ injuryDetailsError: string
+ onInjuryChange: (value: boolean) => void
+ onInjuryDetailsChange: (value: string) => void
+}
+
+function InjuryCheckSection({ isMobile, injury, injuryAnswered, injuryDetails, injuryError, injuryDetailsError, onInjuryChange, onInjuryDetailsChange }: InjuryCheckSectionProps) {
+ return (
+  <div style={styles.sectionCard}>
+   <div style={styles.sectionHeader}>
+    <div>
+     <h3 style={styles.sectionTitle}>Injury Check</h3>
+    </div>
+    <span style={styles.optionalPill}>Required</span>
+   </div>
+
+   <Grid style={{ marginTop: 0, gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))" }}>
+    <ChoiceCard title="No Injury" subtitle="No current pain or restriction." selected={injuryAnswered && injury === false} showBadge={false} centered onClick={() => onInjuryChange(false)} />
+    <ChoiceCard title="Yes, I have one" subtitle="We will ask for a quick note." selected={injuryAnswered && injury === true} showBadge={false} centered onClick={() => onInjuryChange(true)} />
+   </Grid>
+
+   {injuryError && <p style={styles.errorText}>{injuryError}</p>}
+
+   {injury && (
+    <div style={styles.inlineBlock}>
+     <TextInput label="Describe your injury" value={injuryDetails} placeholder="Example: left knee pain, lower back stiffness" onChange={onInjuryDetailsChange} error={injuryDetailsError} />
+    </div>
+   )}
+  </div>
+ )
+}
+
+interface TrainingInfoModalProps {
+ activeKnowMoreType: CatalogTrainingType | null
+ activeKnowMoreContent: TrainingTypeKnowMoreContent | null
+ onClose: () => void
+}
+
+function TrainingInfoModal({ activeKnowMoreType, activeKnowMoreContent, onClose }: TrainingInfoModalProps) {
+ if (!activeKnowMoreType || !activeKnowMoreContent) return null
+
+ return (
+  <div
+   style={styles.trainingInfoOverlay}
+   role="dialog"
+   aria-modal="true"
+   aria-label={`${activeKnowMoreType.name} details`}
+   onClick={(event) => { if (event.target === event.currentTarget) onClose() }}
+  >
+   <div style={styles.trainingInfoModalCard}>
+    <div style={styles.trainingInfoHeader}>
+     <p style={styles.trainingInfoEyebrow}>Training Insights</p>
+     <button type="button" className="kiosk-focus-ring" style={styles.trainingInfoCloseButton} onClick={onClose}>
+      Close
+     </button>
+    </div>
+
+    <div style={styles.trainingInfoModalBody}>
+     <h4 style={styles.trainingInfoTitle}>{activeKnowMoreType.name}</h4>
+     <p style={styles.trainingInfoText}>{activeKnowMoreContent.overview}</p>
+
+     <p style={styles.trainingInfoLabel}>Best for</p>
+     <p style={styles.trainingInfoText}>{activeKnowMoreContent.bestFor}</p>
+
+     <p style={styles.trainingInfoLabel}>Key highlights</p>
+     <ul style={styles.trainingInfoList}>
+      {activeKnowMoreContent.highlights.map((item, index) => (
+       <li key={`${item}-${index}`} style={styles.trainingInfoListItem}>{item}</li>
+      ))}
+     </ul>
+
+     <p style={styles.trainingInfoLabel}>What members work on</p>
+     <ul style={styles.trainingInfoList}>
+      {activeKnowMoreContent.focusAreas.map((item, index) => (
+       <li key={`${item}-${index}`} style={styles.trainingInfoListItem}>{item}</li>
+      ))}
+     </ul>
+
+     <p style={styles.trainingInfoLabel}>Coaching style</p>
+     <p style={styles.trainingInfoText}>{activeKnowMoreContent.coachingStyle}</p>
+
+     <p style={styles.trainingInfoLabel}>Typical session flow</p>
+     <div style={styles.trainingFlowWrap}>
+      {activeKnowMoreContent.sessionFlow.map((item, index) => (
+       <span key={`${item}-${index}`} style={styles.trainingFlowChip}>{item}</span>
+      ))}
+     </div>
+
+     <p style={styles.trainingInfoLabel}>Beginner expectations</p>
+     <p style={styles.trainingInfoText}>{activeKnowMoreContent.beginnerNote}</p>
+
+     <p style={styles.trainingInfoLabel}>Progress over time</p>
+     <p style={styles.trainingInfoText}>{activeKnowMoreContent.progressPath}</p>
+    </div>
+   </div>
+  </div>
+ )
 }

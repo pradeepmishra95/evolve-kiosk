@@ -6,12 +6,15 @@ import PrimaryButton from "../../components/buttons/PrimaryButton"
 import { useUserStore } from "../../store/userStore"
 import { spacing, typography } from "../../styles/GlobalStyles"
 import { validateInjuryDetails } from "../../utils/validation"
+import { getNextRoute } from "../../flow/getNextRoute"
+import { ROUTES } from "../../flow/routes"
 
 export default function InjuryDetailsScreen(){
 
  const navigate = useNavigate()
 
- const { injuryDetails, setData } = useUserStore()
+ const state = useUserStore()
+ const { injuryDetails, setData } = state
  const [error, setError] = useState("")
 
  const handleContinue = () => {
@@ -25,7 +28,7 @@ export default function InjuryDetailsScreen(){
   setData({
    injuryDetails: detailsValidation.trimmedDetails
   })
-  navigate("/experience")
+  navigate(getNextRoute(ROUTES.INJURY_DETAILS, state) ?? "/experience")
  }
 
  return(

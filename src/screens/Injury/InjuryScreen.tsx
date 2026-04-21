@@ -4,11 +4,14 @@ import Grid from "../../layout/Grid"
 import OptionCard from "../../components/cards/OptionCard"
 import { useUserStore } from "../../store/userStore"
 import { spacing, typography } from "../../styles/GlobalStyles"
+import { getNextRoute } from "../../flow/getNextRoute"
+import { ROUTES } from "../../flow/routes"
 
 export default function InjuryScreen() {
 
  const navigate = useNavigate()
- const setData = useUserStore(state => state.setData)
+ const state = useUserStore()
+ const setData = state.setData
 
  const selectInjury = (value: boolean) => {
 
@@ -18,11 +21,11 @@ export default function InjuryScreen() {
    injuryDetails: value ? "" : ""
   })
 
-	  if (value) {
-	   navigate("/injury-details")
-	  } else {
-	   navigate("/experience")
-	  }
+  const action = value ? "injury" : "no-injury"
+  navigate(
+   getNextRoute(ROUTES.INJURY, state, action) ??
+    (value ? "/injury-details" : "/experience")
+  )
 
  }
 

@@ -10,13 +10,16 @@ import { getTrialPersonalTrainingPricing, TRIAL_FEE } from "../utils/trialPricin
 import type { CatalogPersonalTrainingCoach } from "../services/planCatalog"
 
 import { colors, spacing, typography } from "../styles/GlobalStyles"
+import { getNextRoute } from "../flow/getNextRoute"
+import { ROUTES } from "../flow/routes"
 
 export default function PersonalTrainingSelectionScreen(){
 
  const navigate = useNavigate()
  const { personalTraining, loading } = usePlanCatalog()
 
- const { purpose, setData } = useUserStore()
+ const state = useUserStore()
+ const { purpose, setData } = state
 
  const selectOption = (coach: CatalogPersonalTrainingCoach, type:"session" | "package") => {
 
@@ -32,7 +35,7 @@ export default function PersonalTrainingSelectionScreen(){
     paymentStatus: ""
    })
 
-   navigate("/review")
+   navigate(getNextRoute(ROUTES.PERSONAL_TRAINING, state) ?? "/review")
    return
   }
 
@@ -60,7 +63,7 @@ export default function PersonalTrainingSelectionScreen(){
 
   }
 
-  navigate("/review")
+  navigate(getNextRoute(ROUTES.PERSONAL_TRAINING, state) ?? "/review")
 
  }
 

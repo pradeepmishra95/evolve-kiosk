@@ -442,103 +442,27 @@ export default function PlanSelectionScreen() {
     )}
 
     {showAddOnsSection && (
-     <div style={styles.sectionCard}>
-      <h3 style={styles.sectionTitle}>Price Breakdown</h3>
-
-      <div style={styles.breakdownCard}>
-       {priceBreakdown.map((item) => (
-        <div key={item.label} style={styles.breakdownRow}>
-         <span style={styles.breakdownLabel}>{item.label}</span>
-         <span style={{ ...styles.breakdownValue, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" }}>
-          {item.originalAmount !== undefined && (
-           <span style={{ fontSize: "12px", textDecoration: "line-through", textDecorationColor: "#E85A5A", textDecorationThickness: "1.5px", color: "#E85A5A", fontWeight: 400 }}>
-            {formatCurrency(item.originalAmount)}
-           </span>
-          )}
-          {formatCurrency(item.amount)}
-         </span>
-        </div>
-       ))}
-
-       {selectedAddonPlans.length > 0 && (
-        <>
-         <div style={styles.breakdownDivider} />
-         <div style={styles.breakdownRowTotal}>
-          <span style={styles.breakdownLabel}>Add-ons Total</span>
-          <span style={styles.breakdownValue}>{formatCurrency(addonTotal)}</span>
-         </div>
-        </>
-       )}
-
-       <div style={styles.breakdownDivider} />
-       <div style={styles.breakdownRowTotal}>
-        <span style={styles.breakdownLabel}>Total</span>
-        <span style={styles.breakdownValue}>{formatCurrency(totalPrice)}</span>
-       </div>
-      </div>
-     </div>
+     <PriceBreakdownCard
+      priceBreakdown={priceBreakdown}
+      selectedAddonCount={selectedAddonPlans.length}
+      addonTotal={addonTotal}
+      totalPrice={totalPrice}
+     />
     )}
 
-    <div style={styles.sectionCard}>
-     <h3 style={styles.sectionTitle}>Choose Batch Type</h3>
+    <BatchTypeSection
+     scheduleOptions={selectedPlanScheduleOptions}
+     resolvedSchedulePeriod={resolvedSchedulePeriod}
+     onSelect={handleSchedulePeriodChange}
+    />
 
-     <Grid
-      style={{
-       marginTop: spacing.sm,
-       gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 190px), 1fr))"
-      }}
-     >
-      {selectedPlanScheduleOptions.length > 0 ? (
-       selectedPlanScheduleOptions.map((option, index) => (
-        <ChoiceCard
-         key={option.value}
-         title={option.label}
-         subtitle={`${option.timings.length} timing${option.timings.length === 1 ? "" : "s"} available`}
-         selected={resolvedSchedulePeriod === option.value}
-         badgeLabel={resolvedSchedulePeriod === option.value ? "Selected" : index === 0 ? "Best" : "Pick"}
-         centered={false}
-         onClick={() => handleSchedulePeriodChange(option.value)}
-        />
-       ))
-      ) : (
-       <div style={styles.emptyState}>Batch timing will be set from the selected plan.</div>
-      )}
-     </Grid>
-    </div>
-
-    <div style={styles.sectionCard}>
-     <h3 style={styles.sectionTitle}>Choose Time</h3>
-
-     <Grid
-      style={{
-       marginTop: spacing.sm,
-       gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))"
-      }}
-     >
-      {selectedPlanScheduleTimings.length > 0 ? (
-       selectedPlanScheduleTimings.map((timing, index) => (
-        <ChoiceCard
-         key={timing}
-         title={timing}
-         subtitle={resolvedScheduleTime === timing ? "Chosen for this booking" : "Tap to select"}
-         selected={resolvedScheduleTime === timing}
-         badgeLabel={resolvedScheduleTime === timing ? "Selected" : index === 0 ? "Best" : "Pick"}
-         centered
-         onClick={() => handleScheduleTimeChange(timing)}
-        />
-       ))
-      ) : (
-       <div style={styles.emptyState}>Timing will be confirmed by the center.</div>
-      )}
-     </Grid>
-
-     {(resolvedSchedulePeriod || resolvedScheduleTime) && (
-      <p style={styles.scheduleSummary}>
-       Selected: <b>{selectedPlanScheduleLabel}</b>
-       {resolvedScheduleTime ? ` · ${resolvedScheduleTime}` : ""}
-      </p>
-     )}
-    </div>
+    <BatchTimeSection
+     timings={selectedPlanScheduleTimings}
+     resolvedScheduleTime={resolvedScheduleTime}
+     resolvedSchedulePeriod={resolvedSchedulePeriod}
+     schedulePeriodLabel={selectedPlanScheduleLabel}
+     onSelect={handleScheduleTimeChange}
+    />
 
     <div style={styles.footerActions}>
      <button
@@ -826,4 +750,134 @@ const styles = {
   textDecorationThickness: "1.5px",
   textDecorationColor: "#E85A5A"
  }
+}
+
+// ---------------------------------------------------------------------------
+// Local child components
+// ---------------------------------------------------------------------------
+
+interface PriceBreakdownItem {
+ label: string
+ amount: number
+ originalAmount?: number
+}
+
+interface PriceBreakdownCardProps {
+ priceBreakdown: PriceBreakdownItem[]
+ selectedAddonCount: number
+ addonTotal: number
+ totalPrice: number
+}
+
+function PriceBreakdownCard({ priceBreakdown, selectedAddonCount, addonTotal, totalPrice }: PriceBreakdownCardProps) {
+ return (
+  <div style={styles.sectionCard}>
+   <h3 style={styles.sectionTitle}>Price Breakdown</h3>
+   <div style={styles.breakdownCard}>
+    {priceBreakdown.map((item) => (
+     <div key={item.label} style={styles.breakdownRow}>
+      <span style={styles.breakdownLabel}>{item.label}</span>
+      <span style={{ ...styles.breakdownValue, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" }}>
+       {item.originalAmount !== undefined && (
+        <span style={{ fontSize: "12px", textDecoration: "line-through", textDecorationColor: "#E85A5A", textDecorationThickness: "1.5px", color: "#E85A5A", fontWeight: 400 }}>
+         {formatCurrency(item.originalAmount)}
+        </span>
+       )}
+       {formatCurrency(item.amount)}
+      </span>
+     </div>
+    ))}
+    {selectedAddonCount > 0 && (
+     <>
+      <div style={styles.breakdownDivider} />
+      <div style={styles.breakdownRowTotal}>
+       <span style={styles.breakdownLabel}>Add-ons Total</span>
+       <span style={styles.breakdownValue}>{formatCurrency(addonTotal)}</span>
+      </div>
+     </>
+    )}
+    <div style={styles.breakdownDivider} />
+    <div style={styles.breakdownRowTotal}>
+     <span style={styles.breakdownLabel}>Total</span>
+     <span style={styles.breakdownValue}>{formatCurrency(totalPrice)}</span>
+    </div>
+   </div>
+  </div>
+ )
+}
+
+interface SchedulePeriodOption {
+ value: string
+ label: string
+ timings: string[]
+}
+
+interface BatchTypeSectionProps {
+ scheduleOptions: SchedulePeriodOption[]
+ resolvedSchedulePeriod: string
+ onSelect: (value: string) => void
+}
+
+function BatchTypeSection({ scheduleOptions, resolvedSchedulePeriod, onSelect }: BatchTypeSectionProps) {
+ return (
+  <div style={styles.sectionCard}>
+   <h3 style={styles.sectionTitle}>Choose Batch Type</h3>
+   <Grid style={{ marginTop: spacing.sm, gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 190px), 1fr))" }}>
+    {scheduleOptions.length > 0 ? (
+     scheduleOptions.map((option, index) => (
+      <ChoiceCard
+       key={option.value}
+       title={option.label}
+       subtitle={`${option.timings.length} timing${option.timings.length === 1 ? "" : "s"} available`}
+       selected={resolvedSchedulePeriod === option.value}
+       badgeLabel={resolvedSchedulePeriod === option.value ? "Selected" : index === 0 ? "Best" : "Pick"}
+       centered={false}
+       onClick={() => onSelect(option.value)}
+      />
+     ))
+    ) : (
+     <div style={styles.emptyState}>Batch timing will be set from the selected plan.</div>
+    )}
+   </Grid>
+  </div>
+ )
+}
+
+interface BatchTimeSectionProps {
+ timings: string[]
+ resolvedScheduleTime: string
+ resolvedSchedulePeriod: string
+ schedulePeriodLabel: string
+ onSelect: (value: string) => void
+}
+
+function BatchTimeSection({ timings, resolvedScheduleTime, resolvedSchedulePeriod, schedulePeriodLabel, onSelect }: BatchTimeSectionProps) {
+ return (
+  <div style={styles.sectionCard}>
+   <h3 style={styles.sectionTitle}>Choose Time</h3>
+   <Grid style={{ marginTop: spacing.sm, gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))" }}>
+    {timings.length > 0 ? (
+     timings.map((timing, index) => (
+      <ChoiceCard
+       key={timing}
+       title={timing}
+       subtitle={resolvedScheduleTime === timing ? "Chosen for this booking" : "Tap to select"}
+       selected={resolvedScheduleTime === timing}
+       badgeLabel={resolvedScheduleTime === timing ? "Selected" : index === 0 ? "Best" : "Pick"}
+       centered
+       onClick={() => onSelect(timing)}
+      />
+     ))
+    ) : (
+     <div style={styles.emptyState}>Timing will be confirmed by the center.</div>
+    )}
+   </Grid>
+   {(resolvedSchedulePeriod || resolvedScheduleTime) && (
+    <p style={styles.scheduleSummary}>
+     Selected: <b>{schedulePeriodLabel}</b>
+     {resolvedScheduleTime ? ` · ${resolvedScheduleTime}` : ""}
+    </p>
+   )}
+  </div>
+ )
 }

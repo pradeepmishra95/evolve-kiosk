@@ -2,50 +2,22 @@
 
 import { usePathname, useRouter } from "next/navigation"
 import { getPreviousRoutePath } from "../../navigation/routeHistory"
+import { getPreviousRoute } from "../../flow/getPreviousRoute"
 import { useUserStore } from "../../store/userStore"
+import type { KioskRoute } from "../../flow/routes"
 import { colors } from "../../styles/GlobalStyles"
-
-function getBackRoute(pathname: string, purpose: string, status: string): string | null {
- switch (pathname) {
-  case "/phone":
-   return "/"
-  case "/return-user":
-   return "/phone"
-  case "/user-details":
-   return "/phone"
-  case "/profile-photo":
-   return "/user-details"
-  case "/program":
-   return "/profile-photo"
-  case "/plan":
-   // enquiry user who selected enroll comes here from /review
-   return status === "enquiry" || purpose === "enquiry" ? "/review" : "/program"
-  case "/review":
-   return "/plan"
-  case "/payment":
-   return "/review"
-  case "/payment/cash":
-  case "/payment/upi":
-   return "/payment"
-  case "/consent":
-   return "/payment"
-  default:
-   return null
- }
-}
 
 interface Props {
  label?: string
 }
 
-export default function BackButton({ label = "← Back" }: Props) {
+export default function BackButton({ label = "Back" }: Props) {
  const router = useRouter()
  const pathname = usePathname()
- const purpose = useUserStore((state) => state.purpose)
- const status = useUserStore((state) => state.status)
- const reset = useUserStore((state) => state.reset)
+ const state = useUserStore()
+ const { reset } = state
 
- const backRoute = getBackRoute(pathname, purpose, status)
+ const backRoute = getPreviousRoute(pathname as KioskRoute, state)
 
  if (!backRoute) {
   return null

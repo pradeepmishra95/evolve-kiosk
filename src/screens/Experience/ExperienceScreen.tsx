@@ -7,6 +7,8 @@ import { usePlanCatalog } from "../../hooks/usePlanCatalog"
 import { useUserStore } from "../../store/userStore"
 import { colors, radius, spacing } from "../../styles/GlobalStyles"
 import { matchesLabel } from "../../utils/labelMatch"
+import { getNextRoute } from "../../flow/getNextRoute"
+import { ROUTES } from "../../flow/routes"
 
 const priorExperienceOptions = [
  { label: "Choose", value: "" },
@@ -45,13 +47,14 @@ export default function ExperienceScreen() {
  const navigate = useNavigate()
  const { isMobile } = useDevice()
  const { trainingTypes, loading } = usePlanCatalog()
+ const state = useUserStore()
  const {
   priorExerciseExperience,
   priorExerciseActivity,
   priorExerciseDuration,
   lastExerciseTime
- } = useUserStore()
- const setData = useUserStore(state => state.setData)
+ } = state
+ const setData = state.setData
  const [errors, setErrors] = useState({
   priorExerciseExperience: "",
   priorExerciseActivity: "",
@@ -177,7 +180,7 @@ export default function ExperienceScreen() {
    exerciseType: "",
    experience: priorExerciseExperience === "no" ? "Beginner" : ""
   })
-  navigate("/exercise-type")
+  navigate(getNextRoute(ROUTES.EXPERIENCE, state) ?? "/exercise-type")
  }
 
  return (

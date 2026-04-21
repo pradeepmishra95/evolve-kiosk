@@ -4,16 +4,19 @@ import Grid from "../../layout/Grid"
 import OptionCard from "../../components/cards/OptionCard"
 import { useUserStore } from "../../store/userStore"
 import { typography, spacing } from "../../styles/GlobalStyles"
+import { getNextRoute } from "../../flow/getNextRoute"
+import { ROUTES } from "../../flow/routes"
 
 export default function PrimaryGoalScreen() {
 
  const navigate = useNavigate()
  const setData = useUserStore(state => state.setData)
+ const state = useUserStore()
 
  const selectGoal = (goal: string) => {
 
   setData({ primaryGoal: goal })
-  navigate("/user-details")
+  navigate(getNextRoute(ROUTES.GOAL, state) ?? "/user-details")
 
  }
 

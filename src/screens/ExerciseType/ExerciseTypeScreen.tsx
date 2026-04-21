@@ -7,6 +7,8 @@ import { usePlanCatalog } from "../../hooks/usePlanCatalog"
 import type { CatalogTrainingType } from "../../services/planCatalog"
 import { getExperienceClassification } from "../../utils/experience"
 import { colors, radius, shadow, spacing, typography } from "../../styles/GlobalStyles"
+import { getNextRoute } from "../../flow/getNextRoute"
+import { ROUTES } from "../../flow/routes"
 
 const getProgramSummary = (trainingType: CatalogTrainingType) =>
  trainingType.summary || trainingType.description || trainingType.bestFor
@@ -15,13 +17,14 @@ export default function ExerciseTypeScreen() {
  const navigate = useNavigate()
  const { isMobile, isTablet, isCompactHeight } = useDevice()
  const { trainingTypes, loading } = usePlanCatalog()
+ const state = useUserStore()
  const {
   priorExerciseExperience,
   priorExerciseActivity,
   priorExerciseDuration,
   lastExerciseTime
- } = useUserStore()
- const setData = useUserStore((state) => state.setData)
+ } = state
+ const setData = state.setData
  const [activeTrainingType, setActiveTrainingType] = useState<CatalogTrainingType | null>(null)
 
  if (loading && trainingTypes.length === 0) {
@@ -47,7 +50,7 @@ export default function ExerciseTypeScreen() {
    exerciseType: type,
    experience
   })
-  navigate("/program")
+  navigate(getNextRoute(ROUTES.EXERCISE_TYPE, state) ?? "/program")
  }
 
  return (

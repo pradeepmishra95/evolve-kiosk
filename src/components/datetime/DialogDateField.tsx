@@ -208,7 +208,6 @@ export default function DialogDateField({
   [allowedDateSet, maxDate, minDate, resolvedOptions, value]
  )
  const [open, setOpen] = useState(false)
- const [draftValue, setDraftValue] = useState(value)
  const [viewMonth, setViewMonth] = useState(() => startOfMonth(initialDate || startOfDay()))
  const selectedTextId = `${fieldId}-selected`
  const helperId = `${fieldId}-helper`
@@ -216,7 +215,6 @@ export default function DialogDateField({
  const describedBy = error
   ? `${selectedTextId} ${helperText ? helperId : ""} ${errorId}`.trim()
   : `${selectedTextId} ${helperText ? helperId : ""}`.trim()
- const draftDate = useMemo(() => parseDateInputValue(draftValue), [draftValue])
  const calendarCells = useMemo(() => buildCalendarCells(viewMonth), [viewMonth])
  const hasSelectableDates = Boolean(initialDate)
  const selectedOption = resolvedOptions.find((option) => option.value === value) || null
@@ -265,7 +263,6 @@ export default function DialogDateField({
    (selectedDate && isSelectableDate(selectedDate, minDate, maxDate, allowedDateSet) ? selectedDate : null) ||
    initialDate
 
-  setDraftValue(toDateInputValue(resolvedDate))
   setViewMonth(startOfMonth(resolvedDate))
   setOpen(true)
  }
@@ -345,7 +342,7 @@ export default function DialogDateField({
         ...(isCompact ? styles.dialogValueCompact : {})
        }}
       >
-       {formatHeaderDate(draftDate)}
+       {formatHeaderDate(selectedDate)}
       </p>
 
       <div style={styles.monthRow}>
@@ -420,7 +417,7 @@ export default function DialogDateField({
 
         const cellValue = toDateInputValue(cell)
         const disabled = !isSelectableDate(cell, minDate, maxDate, allowedDateSet)
-        const selected = draftValue === cellValue
+        const selected = value === cellValue
         const isToday = toDateInputValue(startOfDay()) === cellValue
 
         return (
@@ -428,7 +425,7 @@ export default function DialogDateField({
           key={cellValue}
           type="button"
           className="kiosk-focus-ring touch-feedback"
-          onClick={() => setDraftValue(cellValue)}
+          onClick={() => { onChange(cellValue); setOpen(false) }}
           disabled={disabled}
           aria-pressed={selected}
           style={{
@@ -462,22 +459,6 @@ export default function DialogDateField({
        >
         Cancel
        </button>
-       <button
-        type="button"
-        className="kiosk-focus-ring touch-feedback"
-        onClick={() => {
-         if (draftValue) {
-          onChange(draftValue)
-         }
-         setOpen(false)
-        }}
-        style={{
-         ...styles.footerButton,
-         ...(isCompact ? styles.footerButtonCompact : {})
-        }}
-       >
-        OK
-       </button>
       </div>
 
       <p
@@ -486,7 +467,7 @@ export default function DialogDateField({
         ...(isCompact ? styles.dialogHelperCompact : {})
        }}
       >
-       {draftValue ? formatDateReadable(draftValue) : emptyMessage}
+       {value ? formatDateReadable(value) : emptyMessage}
       </p>
      </div>
     </div>

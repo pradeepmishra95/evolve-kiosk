@@ -23,21 +23,25 @@ export default function CashPaymentScreen() {
   batchType,
   batchTime,
   price,
- purpose,
- paymentMethod,
- isPartialPayment,
+  purpose,
+  cameFromTrial,
+  discountAmount,
+  paymentMethod,
+  isPartialPayment,
   isSplitPayment,
- paidAmount,
- dueAmount,
- paymentCollectionStep,
- paymentMethod1,
+  paidAmount,
+  dueAmount,
+  paymentCollectionStep,
+  paymentMethod1,
   paymentStatus,
   paymentSurchargeAmount,
   consentAgreed,
   setData
  } = useUserStore()
  const isTrialBooking = purpose === "trial"
- const baseAmount = isTrialBooking ? TRIAL_FEE : price
+ const trialCreditApplied = cameFromTrial && purpose === "enroll"
+ const bookingPrice = isTrialBooking ? TRIAL_FEE : (trialCreditApplied ? Math.max(0, price - TRIAL_FEE) : price)
+ const baseAmount = isTrialBooking ? TRIAL_FEE : Math.max(0, bookingPrice - discountAmount)
  const selectedMethod = paymentMethod || "cash"
  const isStagedPayment = isPartialPayment || isSplitPayment
  const isSecondCollectionStep = isStagedPayment && paymentCollectionStep === 2

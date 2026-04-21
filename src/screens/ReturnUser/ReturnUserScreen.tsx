@@ -32,7 +32,6 @@ export default function ReturnUserScreen() {
  const {
   name,
   status,
-  purpose,
   age,
   program,
   exerciseType,
@@ -51,30 +50,12 @@ export default function ReturnUserScreen() {
  const resolvedProgram = program || selectedPlan?.name || ""
  const resolvedDays = days || selectedPlan?.scheduleDays?.join(", ") || selectedPlan?.days || ""
  const resolvedStatus = status || "enquiry"
- const hasBookedTrial = resolvedStatus === "trial" || (resolvedStatus !== "member" && purpose === "trial")
- const resolvedRenewDuration = duration || selectedPlan?.pricing?.[0]?.duration || ""
+const resolvedRenewDuration = duration || selectedPlan?.pricing?.[0]?.duration || ""
  const resolvedRegularPricing = getRegularPlanPricing(selectedPlan)
  const resolvedRenewPrice =
   resolvedRegularPricing?.price ?? (price !== TRIAL_FEE ? price : 0)
 
- const isExistingEnquiryChoicePending = resolvedStatus === "enquiry" && purpose === "enquiry"
- const isFlowActive = Boolean(purpose) && !isExistingEnquiryChoicePending
-
  const getHeading = () => `Welcome Back${name ? `, ${name}` : ""}`
-
- const handleContinue = () => {
-  navigate("/review")
- }
-
- const getContinueLabel = () => {
-  switch (purpose) {
-   case "trial": return "Book Trial"
-   case "enroll": return "Enroll"
-   case "renew": return "Renew"
-   case "enquiry": return "Enquiry"
-   default: return "Continue"
-  }
- }
 
  const handleTrial = () => {
   const trialPricing = selectedPlan ? getTrialPlanPricing(selectedPlan) : null
@@ -155,57 +136,17 @@ export default function ReturnUserScreen() {
  }
 
  const cards = (() => {
-  if (isFlowActive) {
-   return [
-    {
-     title: getContinueLabel(),
-     onClick: handleContinue
-    }
-   ]
-  }
-
   if (resolvedStatus === "member") {
-   return [
-    {
-     title: "Renew",
-     onClick: handleRenew
-    }
-   ]
+   return [{ title: "Renew", onClick: handleRenew }]
   }
 
- if (hasBookedTrial) {
-  return [
-   {
-    title: "Enroll",
-     onClick: handleEnroll
-   }
-  ]
- }
-
-  if (resolvedStatus === "enquiry") {
-   return [
-    {
-     title: "Book Trial",
-     subtitle: `₹${TRIAL_FEE} trial booking fee. ${TRIAL_FEE_NOTE}`,
-     onClick: handleTrial
-    },
-    {
-     title: "Enroll",
-     onClick: handleEnroll
-    }
-   ]
+  if (resolvedStatus === "trial") {
+   return [{ title: "Enroll", onClick: handleEnroll }]
   }
 
   return [
-   {
-     title: "Book Trial",
-    subtitle: `₹${TRIAL_FEE} trial booking fee. ${TRIAL_FEE_NOTE}`,
-    onClick: handleTrial
-   },
-   {
-    title: "Enroll",
-    onClick: handleEnroll
-   }
+   { title: "Book Trial", subtitle: `₹${TRIAL_FEE} trial booking fee. ${TRIAL_FEE_NOTE}`, onClick: handleTrial },
+   { title: "Enroll", onClick: handleEnroll }
   ]
  })()
 

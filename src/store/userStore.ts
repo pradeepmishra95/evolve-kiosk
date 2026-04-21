@@ -57,6 +57,7 @@ export interface UserState {
  mainPlanOriginalPrice: number
 
  price: number
+ discountAmount: number
  duration: MembershipDuration
 
  batchType: string
@@ -164,6 +165,7 @@ const initialState: UserStoreData = {
  mainPlanOriginalPrice: 0,
 
  price: 0,
+ discountAmount: 0,
  duration: "",
 
  batchType: "",
@@ -347,6 +349,7 @@ export const useUserStore = create<UserState>()(
     mainPlanPrice: state.mainPlanPrice,
     mainPlanOriginalPrice: state.mainPlanOriginalPrice,
     price: state.price,
+    discountAmount: state.discountAmount,
     duration: state.duration,
     batchType: state.batchType,
     batchTime: state.batchTime,

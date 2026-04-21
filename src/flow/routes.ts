@@ -1,0 +1,28 @@
+export const ROUTES = {
+  WELCOME: "/",
+  PHONE: "/phone",
+  GOAL: "/goal",
+  SPECIFIC_GOAL: "/specific-goal",
+  RETURN_USER: "/return-user",
+  USER_DETAILS: "/user-details",
+  PROFILE_PHOTO: "/profile-photo",
+  EXPERIENCE: "/experience",
+  INJURY: "/injury",
+  INJURY_DETAILS: "/injury-details",
+  EXERCISE_TYPE: "/exercise-type",
+  PROGRAM: "/program",
+  PLAN: "/plan",
+  PERSONAL_TRAINING: "/personal-training",
+  BATCH_TYPE: "/batch-type",
+  TIME_SELECTION: "/time-selection",
+  ENQUIRY: "/enquiry",
+  ENQUIRY_THANK_YOU: "/enquiry-thank-you",
+  REVIEW: "/review",
+  CONSENT: "/consent",
+  PAYMENT: "/payment",
+  PAYMENT_CASH: "/payment/cash",
+  PAYMENT_UPI: "/payment/upi",
+  SUCCESS: "/success",
+} as const
+
+export type KioskRoute = (typeof ROUTES)[keyof typeof ROUTES]

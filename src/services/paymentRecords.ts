@@ -20,6 +20,7 @@ interface PaymentRecordPayload {
  program: string
  duration: MembershipDuration
  amount: number
+ discountAmount?: number
  mainPlanPrice?: number
  selectedAddOnIds?: string[]
  addonTotalPrice?: number

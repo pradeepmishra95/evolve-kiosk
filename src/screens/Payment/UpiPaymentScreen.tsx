@@ -24,6 +24,8 @@ export default function UpiPaymentScreen() {
   batchTime,
   price,
   purpose,
+  cameFromTrial,
+  discountAmount,
   isPartialPayment,
   isSplitPayment,
   paidAmount,
@@ -37,7 +39,9 @@ export default function UpiPaymentScreen() {
  } = useUserStore()
  const selectedMethod = "upi"
  const isTrialBooking = purpose === "trial"
- const baseAmount = isTrialBooking ? TRIAL_FEE : price
+ const trialCreditApplied = cameFromTrial && purpose === "enroll"
+ const bookingPrice = isTrialBooking ? TRIAL_FEE : (trialCreditApplied ? Math.max(0, price - TRIAL_FEE) : price)
+ const baseAmount = isTrialBooking ? TRIAL_FEE : Math.max(0, bookingPrice - discountAmount)
  const isStagedPayment = isPartialPayment || isSplitPayment
  const isSecondCollectionStep = isStagedPayment && paymentCollectionStep === 2
  const payableAmount = getPaymentCollectionAmount({
